@@ -1,0 +1,8 @@
+.env
+embeddings_cache/
+data/processed/
+results/*
+!results/comparison_table.csv
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
