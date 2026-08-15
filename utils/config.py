@@ -16,6 +16,7 @@ NUM_CLASSES = 4
 SEED = 42
 LABEL_FRACTION = 0.05
 SAMPLE_SIZE = 8000  # train-set dev cap; set to None for the full-data final run
+ROBERTA_SAMPLE_SIZE = 500  # separate, smaller cap for CPU-bound frozen RoBERTa embedding; None = full data
 CLASSIFIER_MODEL_NAME = "distilbert-base-uncased"
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
