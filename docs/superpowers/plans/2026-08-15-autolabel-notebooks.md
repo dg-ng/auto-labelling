@@ -1455,11 +1455,13 @@ git commit -m "Add 04_weak_supervision notebook"
 
 **Runtime note — fine-tuning uses its own, much smaller sample than the embedding/clustering tasks.** Measured on this machine: `pseudo_label_loop`'s 4 DistilBERT fine-tuning calls (3 self-training iterations + 1 final retrain) plus 3 prediction passes did not finish within a 3600-second (60 minute) cell timeout at the original scale (~6000 labeled rows, up to `SAMPLE_SIZE=8000` unlabeled rows) — actual fine-tuning throughput is far more expensive than frozen embedding, and per-call model/tokenizer construction overhead (~85-90s) compounds across 4 calls. `utils/config.py` gets a new constant `CLASSIFIER_SAMPLE_SIZE = 500`, added in this task's Step 1, capping **both** `labeled_df` and `unlabeled_sample` for this notebook (and reused by Task 12). This is independent of `SAMPLE_SIZE` (used by TF-IDF/MiniLM/OpenAI) and `ROBERTA_SAMPLE_SIZE` (used by frozen RoBERTa embedding) — three separate dials for three different cost profiles. For the eventual full-scale final run, raise `CLASSIFIER_SAMPLE_SIZE` to `None` alongside the others, and budget several hours, unattended.
 
+**Update — `CLASSIFIER_SAMPLE_SIZE=500` still timed out (real attempt, not estimate).** Executing the notebook at 500 hit the exact 3600s `nbclient.CellTimeoutError` on the `pseudo_label_loop` cell. A follow-up profile against the real (non-synthetic) AG News text on this machine measured actual throughput: fine-tuning ≈0.54s/row/epoch, frozen-model inference ≈0.12s/row. At `N=500`: 4 train calls × ~810s (3 epochs) + the fixed ~912s final test-set (7,600 rows) prediction pass alone total well past 3600s. `CLASSIFIER_SAMPLE_SIZE` is lowered to **150**, which projects to ≈35-40 min total (comfortable margin under a bumped 5400s timeout). Task 12 (single train call, no unlabeled-predict passes) stays safely under its existing 1800s budget at N=150 too — its earlier "single-digit minutes" expectation was optimistic and is corrected below.
+
 - [ ] **Step 1: Add `CLASSIFIER_SAMPLE_SIZE` to `utils/config.py`**
 
 Add this line to `utils/config.py`, directly after the existing `ROBERTA_SAMPLE_SIZE = 500` line (from Task 7) — don't change anything else in the file:
 ```python
-CLASSIFIER_SAMPLE_SIZE = 500  # separate, smaller cap for DistilBERT fine-tuning (tasks 11, 12); None = full data
+CLASSIFIER_SAMPLE_SIZE = 150  # separate, smaller cap for DistilBERT fine-tuning (tasks 11, 12); None = full data
 ```
 
 - [ ] **Step 2: Create the notebook with these cells, in order**
@@ -1554,9 +1556,9 @@ Use the `NotebookEdit` tool to create the file and add each cell in this order.
 
 - [ ] **Step 3: Execute the notebook end-to-end**
 
-Run this as a background command (NOT a single foreground command with a fixed wait — even at `CLASSIFIER_SAMPLE_SIZE=500` this involves 4 real fine-tuning runs and may take 15-30+ minutes; do not assume it will finish within any tool's default foreground timeout):
-`uv run jupyter nbconvert --to notebook --execute --inplace notebooks/05_pseudo_labeling.ipynb --ExecutePreprocessor.timeout=3600`
-Launch it as a single background process (no double-backgrounding — don't combine shell-level `&`/`nohup` with a tool-level background flag, pick exactly one backgrounding mechanism) and poll for `results/metrics_pseudo_labeling.json` to appear, or watch for the process to exit. Expected: exits 0, well under the 3600s cell timeout at this sample size.
+Run this as a background command (NOT a single foreground command with a fixed wait — even at `CLASSIFIER_SAMPLE_SIZE=150` this involves 4 real fine-tuning runs plus a full 7,600-row test-set inference pass and is projected at ~35-40 minutes; do not assume it will finish within any tool's default foreground timeout):
+`uv run jupyter nbconvert --to notebook --execute --inplace notebooks/05_pseudo_labeling.ipynb --ExecutePreprocessor.timeout=5400`
+Launch it as a single background process (no double-backgrounding — don't combine shell-level `&`/`nohup` with a tool-level background flag, pick exactly one backgrounding mechanism) and poll for `results/metrics_pseudo_labeling.json` to appear, or watch for the process to exit. Expected: exits 0, with margin under the 5400s cell timeout at this sample size.
 
 - [ ] **Step 4: Verify output**
 
@@ -1646,7 +1648,7 @@ Use the `NotebookEdit` tool to create the file and add each cell in this order.
 - [ ] **Step 2: Execute the notebook end-to-end**
 
 Run: `uv run jupyter nbconvert --to notebook --execute --inplace notebooks/06_full_supervised_baseline.ipynb --ExecutePreprocessor.timeout=1800`
-Expected: exits 0. Only one fine-tuning call this time (vs. Task 11's four), so this should complete in single-digit minutes at `CLASSIFIER_SAMPLE_SIZE=500` — but if running it as a single foreground command, use a generous timeout (at least 600000ms) and prefer a background launch with a single backgrounding mechanism if there's any doubt, per Task 11's lesson.
+Expected: exits 0. Only one fine-tuning call this time (vs. Task 11's four) and no unlabeled-set prediction passes, so at `CLASSIFIER_SAMPLE_SIZE=150` this projects to ~20 minutes (dominated by the fixed ~15 min full 7,600-row test-set inference pass, not the training itself — Task 11's earlier "single-digit minutes" estimate for this task undercounted that fixed cost). Run it as a background launch with a single backgrounding mechanism, per Task 11's lesson.
 
 - [ ] **Step 3: Verify output**
 

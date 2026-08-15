@@ -2,7 +2,7 @@ from pathlib import Path
 
 import numpy as np
 
-from utils.config import CACHE_DIR
+from utils.config import CACHE_DIR, MODEL
 
 
 def _cache_path(name: str) -> Path:
@@ -75,7 +75,7 @@ def get_bert_embeddings(texts, cache_name: str, model_name: str = "roberta-base"
     return arr
 
 
-def get_openai_embeddings(texts, cache_name: str, model: str = "text-embedding-3-small",
+def get_openai_embeddings(texts, cache_name: str, model: str = MODEL,
                            batch_size: int = 100) -> np.ndarray:
     cached = load_cached(cache_name)
     if cached is not None:
