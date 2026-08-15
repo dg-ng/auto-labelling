@@ -1,0 +1,37 @@
+[project]
+name = "autolabel-project"
+version = "0.1.0"
+description = "Auto-labeling for text: unsupervised and semi-supervised AG News classification"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas",
+    "numpy",
+    "scikit-learn",
+    "scipy",
+    "torch",
+    "transformers",
+    "sentence-transformers",
+    "umap-learn",
+    "hdbscan",
+    "bertopic",
+    "snorkel",
+    "openai",
+    "python-dotenv",
+    "matplotlib",
+    "seaborn",
+    "tabulate",
+    "pyarrow",
+    "jupyter",
+    "nbconvert",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
