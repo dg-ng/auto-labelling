@@ -27,18 +27,23 @@ def clustering_accuracy(true_labels, cluster_labels) -> float:
     true_labels = np.array(true_labels)
     cluster_labels = np.array(cluster_labels)
 
-    n_classes = len(np.unique(true_labels))
-    n_clusters = len(np.unique(cluster_labels[cluster_labels >= 0]))
+    class_ids = np.unique(true_labels)
+    cluster_ids = np.unique(cluster_labels[cluster_labels >= 0])
+    n_classes = len(class_ids)
+    n_clusters = len(cluster_ids)
     size = max(n_classes, n_clusters)
 
     cost_matrix = np.zeros((size, size))
-    for c in range(n_clusters):
-        for k in range(n_classes):
-            cost_matrix[c, k] = np.sum((cluster_labels == c) & (true_labels == k))
+    for ci, c in enumerate(cluster_ids):
+        for ki, k in enumerate(class_ids):
+            cost_matrix[ci, ki] = np.sum(
+                (cluster_labels == c) & (true_labels == k))
 
     row_ind, col_ind = linear_sum_assignment(-cost_matrix)
     correct = cost_matrix[row_ind, col_ind].sum()
     total = (cluster_labels >= 0).sum()
+    if total == 0:
+        return 0.0
     return correct / total
 
 
