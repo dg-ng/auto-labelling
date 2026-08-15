@@ -1719,11 +1719,21 @@ for path in result_files:
     else:
         flat = data
     rows[name] = flat
+
+# OpenAI-embedding-based methods are skipped upstream (notebook 02) when no
+# API key/cache is available yet (e.g. billing not set up) — show them as
+# "pending" in the comparison rather than silently omitting them.
+OPENAI_METHODS = ["openai_kmeans", "openai_hdbscan"]
+for method in OPENAI_METHODS:
+    if method not in rows:
+        rows[method] = {"Status": "pending"}
 ```
 
 Code cell (sanity assertion + build table):
 ```python
 for name, metrics in rows.items():
+    if metrics.get("Status") == "pending":
+        continue  # OpenAI placeholder rows carry no metrics yet
     missing_unsup = [k for k in UNSUPERVISED_KEYS if k not in metrics]
     missing_semisup = [k for k in SEMISUPERVISED_KEYS if k not in metrics]
     assert not (missing_unsup and missing_semisup), \
