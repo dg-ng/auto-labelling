@@ -1794,9 +1794,74 @@ git commit -m "Add 07_comparison notebook"
 
 ## Final Run (not a task — a follow-up procedure)
 
+**STATUS as of 2026-08-15: all 13 tasks are done and merged to `master`
+(dev-scale run, `SAMPLE_SIZE=8000` / `ROBERTA_SAMPLE_SIZE=500` /
+`CLASSIFIER_SAMPLE_SIZE=150`). The full-data final run below has NOT started
+— this is a pending decision, paused so the user could shut their laptop
+down. Pick up here in the next session.**
+
 Once all 13 tasks pass with `SAMPLE_SIZE = 8000`, set `SAMPLE_SIZE = None` in
 `utils/config.py`, delete `embeddings_cache/*n8000*.npy` (so full-data
 embeddings get computed fresh under new cache names), and re-run notebooks
 01, 02, 03, 04, 05, 06, 07 in order — ideally unattended (05 and 06 will take
 the longest). The resulting `results/comparison_table.csv` is the final
 deliverable.
+
+### Cost reality check (measured on this machine during Task 11 debugging)
+
+Fine-tuning DistilBERT: **~0.54 s/row/epoch**. Frozen-model inference:
+**~0.12 s/row**. Frozen RoBERTa embedding (warm): **~0.5-1 s/text**. AG News
+full data: 120,000 train rows, 7,600 test rows (test is always used in full,
+never sampled); `LABEL_FRACTION=0.05` → labeled pool ≈6,000, unlabeled pool
+≈114,000.
+
+Setting all three sample-size dials to `None` (true full data) projects to:
+
+| Step | Full-data size | Estimate |
+|---|---|---|
+| Notebook 06 `full_supervised` (1 train call, 3 epochs, all 120,000 rows) | 120,000 rows | **~54 hours** |
+| Notebook 05 `pseudo_labeling` (4 train calls + predict passes, labeled/unlabeled pools growing/shrinking) | 6,000 → ? / 114,000 | **~40-80+ hours** (depends on how many pseudo-labels actually get absorbed — unknowable until it runs) |
+| Notebook 01 RoBERTa embedding | 127,600 texts | **~18-35 hours** |
+| TF-IDF / MiniLM / OpenAI embedding | 127,600 texts | minutes (not a bottleneck) |
+
+**Total: ~5-10+ days of continuous unattended CPU compute**, no GPU on this
+machine. Sequential (the notebooks run in order, each depending on the last).
+
+### Known blocker — fix before attempting ANY full-data run, regardless of size chosen
+
+`utils/metrics.py`'s `evaluate_unsupervised` calls `silhouette_score(...)` and
+`davies_bouldin_score(...)` on the **full, unsampled** embedding array, for
+every method (~9-10 calls total across notebook 02's `tfidf`/`minilm`/
+`roberta`/`openai` × `kmeans`/`hdbscan`, plus notebook 03's `bertopic`). Both
+are O(n²) in the number of points. At `n=120,000` that's ~14.4 billion
+pairwise distances *per call* — likely many extra hours or a memory blowup,
+independent of the fine-tuning cost above. Fix: pass sklearn's `sample_size=`
+parameter (e.g. `sample_size=5000, random_state=config.SEED`) to both calls
+in `evaluate_unsupervised` before running at any scale meaningfully larger
+than the current dev-scale (`SAMPLE_SIZE=8000` already works fine — the risk
+starts well above that, so this matters most for the "true full 120k" option
+below, less for a moderately scaled-up run).
+
+### Three options presented to the user (2026-08-15) — none chosen yet, decide next session
+
+1. **Scaled-up bounded run (recommended by Claude).** Raise the dials to
+   large-but-finite values instead of `None` — e.g. `SAMPLE_SIZE≈20,000-30,000`,
+   `CLASSIFIER_SAMPLE_SIZE≈2,000-3,000`, `ROBERTA_SAMPLE_SIZE≈2,000-3,000`.
+   Much more representative than the current 150/500/8,000 dev run, finishes
+   in hours, not days. Fix the silhouette_score issue first regardless.
+2. **Hybrid: true full-data for the cheap methods only.** Run TF-IDF/MiniLM/
+   weak-supervision/BERTopic at true full 120k scale (fast — minutes), but
+   keep RoBERTa embedding and DistilBERT fine-tuning (notebooks 01's RoBERTa
+   cell, 05, 06) capped at current or modestly raised sizes, since those are
+   the CPU-bound bottleneck.
+3. **True literal full-data run, unattended.** Set all three dials to `None`
+   per the plan as originally written and let it run in the background for
+   as long as it takes (days). Fix the silhouette_score bug first, then
+   launch and check in periodically.
+
+### To resume next session
+
+Tell Claude "continue the full-data final run decision" (or similar) and
+point it at this file's "Final Run" section — it has everything needed:
+the cost table, the silhouette_score fix required first, and the three
+options awaiting a choice.
