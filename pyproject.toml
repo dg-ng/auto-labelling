@@ -23,6 +23,7 @@ dependencies = [
     "pyarrow",
     "jupyter",
     "nbconvert",
+    "accelerate>=1.1.0",
 ]
 
 [tool.uv]
