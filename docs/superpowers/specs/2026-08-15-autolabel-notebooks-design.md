@@ -62,8 +62,12 @@ final-project/
 │   ├── embeddings.py               # get_tfidf_embeddings(), get_sentence_embeddings(),
 │   │                               # get_bert_embeddings(), get_openai_embeddings(),
 │   │                               # cache_embeddings(), load_cached_embeddings()
-│   └── metrics.py                  # evaluate_unsupervised(), evaluate_semisupervised(),
-│                                    # evaluate_label_quality(), clustering_accuracy()
+│   ├── metrics.py                  # evaluate_unsupervised(), evaluate_semisupervised(),
+│   │                                # evaluate_label_quality(), clustering_accuracy()
+│   └── modeling.py                 # train_model(), get_predictions(), pseudo_label_loop() —
+│                                    # shared by notebooks 05 and 06 so the fine-tuning
+│                                    # loop isn't duplicated between them (planning-stage
+│                                    # addition, DRY)
 ├── embeddings_cache/               # *.npy, gitignored
 ├── results/                        # metrics json/csv + plots, gitignored except comparison_table.csv
 ├── notebooks/
@@ -137,11 +141,21 @@ to re-run top-to-bottom. `07_comparison` reads only from `results/`.
 
 ## Environment
 
-`requirements.txt` pins versions (Snorkel constrains numpy/pandas
-compatibility — pin exact versions there). `.env` holds `OPENAI_API_KEY`,
-loaded via `python-dotenv` in `utils/config.py`; `.gitignore` excludes `.env`,
+Dependency and environment management uses **uv**, not pip/requirements.txt.
+`pyproject.toml` declares dependencies (Snorkel constrains numpy/pandas
+compatibility — versions get resolved and pinned in `uv.lock`, which is
+committed for reproducibility). Torch is pulled from the PyTorch CPU wheel
+index (`tool.uv.sources` / `tool.uv.index`) to avoid downloading the much
+larger CUDA build on this CPU-only machine. All commands run via `uv run
+...` (e.g. `uv run jupyter nbconvert ...`) rather than activating a venv
+manually. `.env` holds `OPENAI_API_KEY`, loaded via `python-dotenv` in
+`utils/config.py`; `.gitignore` excludes `.env`, `.venv/`,
 `embeddings_cache/`, `data/processed/`, and `results/*` except
 `comparison_table.csv`.
+
+No pytest/automated test suite — `utils/` functions are verified with
+one-off `uv run python` smoke checks when first written, and are exercised
+for real by the notebooks' own inline sanity assertions thereafter.
 
 ## Known Risks
 
