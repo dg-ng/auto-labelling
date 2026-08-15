@@ -1450,10 +1450,19 @@ git commit -m "Add 04_weak_supervision notebook"
 - Create: `notebooks/05_pseudo_labeling.ipynb`
 
 **Interfaces:**
-- Consumes: `data/processed/{labeled,unlabeled,test_clean}.parquet` (Task 6), `utils.modeling.{pseudo_label_loop, get_predictions}` (Task 5), `utils.metrics.{evaluate_label_quality, evaluate_semisupervised}` (Task 3)
+- Consumes: `data/processed/{labeled,unlabeled,test_clean}.parquet` (Task 6), `utils.modeling.{pseudo_label_loop, get_predictions}` (Task 5), `utils.metrics.{evaluate_label_quality, evaluate_semisupervised}` (Task 3), `utils.config.CLASSIFIER_SAMPLE_SIZE` (new constant, added by this task)
 - Produces: `results/metrics_pseudo_labeling.json`, `results/confusion_matrix_pseudo_labeling.png` — consumed by notebook task 13.
 
-- [ ] **Step 1: Create the notebook with these cells, in order**
+**Runtime note — fine-tuning uses its own, much smaller sample than the embedding/clustering tasks.** Measured on this machine: `pseudo_label_loop`'s 4 DistilBERT fine-tuning calls (3 self-training iterations + 1 final retrain) plus 3 prediction passes did not finish within a 3600-second (60 minute) cell timeout at the original scale (~6000 labeled rows, up to `SAMPLE_SIZE=8000` unlabeled rows) — actual fine-tuning throughput is far more expensive than frozen embedding, and per-call model/tokenizer construction overhead (~85-90s) compounds across 4 calls. `utils/config.py` gets a new constant `CLASSIFIER_SAMPLE_SIZE = 500`, added in this task's Step 1, capping **both** `labeled_df` and `unlabeled_sample` for this notebook (and reused by Task 12). This is independent of `SAMPLE_SIZE` (used by TF-IDF/MiniLM/OpenAI) and `ROBERTA_SAMPLE_SIZE` (used by frozen RoBERTa embedding) — three separate dials for three different cost profiles. For the eventual full-scale final run, raise `CLASSIFIER_SAMPLE_SIZE` to `None` alongside the others, and budget several hours, unattended.
+
+- [ ] **Step 1: Add `CLASSIFIER_SAMPLE_SIZE` to `utils/config.py`**
+
+Add this line to `utils/config.py`, directly after the existing `ROBERTA_SAMPLE_SIZE = 500` line (from Task 7) — don't change anything else in the file:
+```python
+CLASSIFIER_SAMPLE_SIZE = 500  # separate, smaller cap for DistilBERT fine-tuning (tasks 11, 12); None = full data
+```
+
+- [ ] **Step 2: Create the notebook with these cells, in order**
 
 Markdown cell:
 ```markdown
@@ -1461,9 +1470,11 @@ Markdown cell:
 
 Iteratively fine-tunes `utils.config.CLASSIFIER_MODEL_NAME` on the labeled
 pool, predicts on the unlabeled pool, and absorbs high-confidence
-predictions each round. CPU runtime note: this is the most expensive
-notebook — with `SAMPLE_SIZE=8000` expect tens of minutes; the full-data
-final run should be kicked off unattended.
+predictions each round. Uses `CLASSIFIER_SAMPLE_SIZE` (much smaller than
+the embedding tasks' `SAMPLE_SIZE`) since fine-tuning is far more
+CPU-expensive than frozen embedding — this is still the most expensive
+notebook in the plan. The full-data final run should be kicked off
+unattended and budgeted in hours, not minutes.
 ```
 
 Code cell (path setup + imports):
@@ -1491,18 +1502,19 @@ labeled_df = pd.read_parquet(config.PROCESSED_DIR / "labeled.parquet")
 unlabeled_df = pd.read_parquet(config.PROCESSED_DIR / "unlabeled.parquet")
 test_clean = pd.read_parquet(config.PROCESSED_DIR / "test_clean.parquet")
 
-unlabeled_sample = stratified_sample(unlabeled_df, config.SAMPLE_SIZE, seed=config.SEED)
+labeled_sample = stratified_sample(labeled_df, config.CLASSIFIER_SAMPLE_SIZE, seed=config.SEED)
+unlabeled_sample = stratified_sample(unlabeled_df, config.CLASSIFIER_SAMPLE_SIZE, seed=config.SEED)
 
 overlap = set(unlabeled_sample["text"]) & set(test_clean["text"])
 assert len(overlap) == 0, f"{len(overlap)} rows leaked between train pool and test set"
-print(f"Labeled: {len(labeled_df)} | Unlabeled sample: {len(unlabeled_sample)} | Test: {len(test_clean)}")
+print(f"Labeled sample: {len(labeled_sample)} | Unlabeled sample: {len(unlabeled_sample)} | Test: {len(test_clean)}")
 print("No train/test text overlap confirmed.")
 ```
 
 Code cell (run self-training loop):
 ```python
 final_model, final_tokenizer, current_labeled, history = pseudo_label_loop(
-    labeled_df, unlabeled_sample,
+    labeled_sample, unlabeled_sample,
     model_name=config.CLASSIFIER_MODEL_NAME, n_iterations=3,
     confidence_threshold=0.90, epochs=3)
 
@@ -1512,7 +1524,7 @@ for h in history:
 
 Code cell (pseudo-label quality against hidden ground truth):
 ```python
-pseudo_only = current_labeled.iloc[len(labeled_df):]
+pseudo_only = current_labeled.iloc[len(labeled_sample):]
 merged = pseudo_only.merge(unlabeled_sample[["text", "true_label"]], on="text", how="left")
 
 label_quality = evaluate_label_quality(
@@ -1540,21 +1552,22 @@ print("Saved pseudo-labeling results.")
 
 Use the `NotebookEdit` tool to create the file and add each cell in this order.
 
-- [ ] **Step 2: Execute the notebook end-to-end**
+- [ ] **Step 3: Execute the notebook end-to-end**
 
-Run: `uv run jupyter nbconvert --to notebook --execute --inplace notebooks/05_pseudo_labeling.ipynb --ExecutePreprocessor.timeout=3600`
-Expected: exits 0. Allow up to 60 minutes on CPU with `SAMPLE_SIZE=8000`.
+Run this as a background command (NOT a single foreground command with a fixed wait — even at `CLASSIFIER_SAMPLE_SIZE=500` this involves 4 real fine-tuning runs and may take 15-30+ minutes; do not assume it will finish within any tool's default foreground timeout):
+`uv run jupyter nbconvert --to notebook --execute --inplace notebooks/05_pseudo_labeling.ipynb --ExecutePreprocessor.timeout=3600`
+Launch it as a single background process (no double-backgrounding — don't combine shell-level `&`/`nohup` with a tool-level background flag, pick exactly one backgrounding mechanism) and poll for `results/metrics_pseudo_labeling.json` to appear, or watch for the process to exit. Expected: exits 0, well under the 3600s cell timeout at this sample size.
 
-- [ ] **Step 3: Verify output**
+- [ ] **Step 4: Verify output**
 
 Run: `cat results/metrics_pseudo_labeling.json`
 Expected: valid JSON with `test_metrics`, `label_quality`, `history` keys; `results/confusion_matrix_pseudo_labeling.png` exists.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add notebooks/05_pseudo_labeling.ipynb
-git commit -m "Add 05_pseudo_labeling notebook"
+git add utils/config.py notebooks/05_pseudo_labeling.ipynb
+git commit -m "Add 05_pseudo_labeling notebook; add CLASSIFIER_SAMPLE_SIZE config"
 ```
 
 ---
@@ -1565,8 +1578,10 @@ git commit -m "Add 05_pseudo_labeling notebook"
 - Create: `notebooks/06_full_supervised_baseline.ipynb`
 
 **Interfaces:**
-- Consumes: `data/processed/{train_clean,test_clean}.parquet` (Task 6), `utils.modeling.{train_model, get_predictions}` (Task 5), `utils.metrics.evaluate_semisupervised` (Task 3)
+- Consumes: `data/processed/{train_clean,test_clean}.parquet` (Task 6), `utils.modeling.{train_model, get_predictions}` (Task 5), `utils.metrics.evaluate_semisupervised` (Task 3), `utils.config.CLASSIFIER_SAMPLE_SIZE` (added by Task 11)
 - Produces: `results/metrics_full_supervised.json`, `results/confusion_matrix_full_supervised.png` — consumed by notebook task 13.
+
+**Uses `CLASSIFIER_SAMPLE_SIZE`, not `SAMPLE_SIZE`** — same reasoning as Task 11: DistilBERT fine-tuning is far more expensive than frozen embedding, so this task trains on the smaller `CLASSIFIER_SAMPLE_SIZE`-capped sample rather than the full `SAMPLE_SIZE=8000`.
 
 - [ ] **Step 1: Create the notebook with these cells, in order**
 
@@ -1575,7 +1590,9 @@ Markdown cell:
 # 06 — Full Supervised Baseline
 
 Trains `utils.config.CLASSIFIER_MODEL_NAME` on 100% of available labels —
-the upper-bound target every other method is compared against.
+the upper-bound target every other method is compared against. Uses
+`CLASSIFIER_SAMPLE_SIZE` (see Task 11's runtime note) since fine-tuning is
+CPU-expensive.
 ```
 
 Code cell (path setup + imports):
@@ -1602,7 +1619,7 @@ Code cell (load + sample):
 train_clean = pd.read_parquet(config.PROCESSED_DIR / "train_clean.parquet")
 test_clean = pd.read_parquet(config.PROCESSED_DIR / "test_clean.parquet")
 
-train_sample = stratified_sample(train_clean, config.SAMPLE_SIZE, seed=config.SEED)
+train_sample = stratified_sample(train_clean, config.CLASSIFIER_SAMPLE_SIZE, seed=config.SEED)
 print(f"Training on {len(train_sample)} fully-labeled rows (upper bound baseline)")
 ```
 
@@ -1629,7 +1646,7 @@ Use the `NotebookEdit` tool to create the file and add each cell in this order.
 - [ ] **Step 2: Execute the notebook end-to-end**
 
 Run: `uv run jupyter nbconvert --to notebook --execute --inplace notebooks/06_full_supervised_baseline.ipynb --ExecutePreprocessor.timeout=1800`
-Expected: exits 0.
+Expected: exits 0. Only one fine-tuning call this time (vs. Task 11's four), so this should complete in single-digit minutes at `CLASSIFIER_SAMPLE_SIZE=500` — but if running it as a single foreground command, use a generous timeout (at least 600000ms) and prefer a background launch with a single backgrounding mechanism if there's any doubt, per Task 11's lesson.
 
 - [ ] **Step 3: Verify output**
 
