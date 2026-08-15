@@ -1702,9 +1702,6 @@ from utils import config
 
 Code cell (load all results):
 ```python
-UNSUPERVISED_KEYS = ["ACC (Hungarian)", "NMI", "ARI", "Coverage"]
-SEMISUPERVISED_KEYS = ["Accuracy", "Macro F1", "Coverage"]
-
 result_files = sorted(config.RESULTS_DIR.glob("metrics_*.json"))
 assert len(result_files) > 0, "No results found — run notebooks 02-06 first"
 
@@ -1729,15 +1726,30 @@ for method in OPENAI_METHODS:
         rows[method] = {"Status": "pending"}
 ```
 
+**Correction — the original per-row key-set check was too strict.** Requiring
+each row to fully satisfy `UNSUPERVISED_KEYS` (`ACC (Hungarian)`, `NMI`,
+`ARI`, `Coverage`) or `SEMISUPERVISED_KEYS` (`Accuracy`, `Macro F1`,
+`Coverage`) doesn't hold for either real semisupervised row: `full_supervised`
+has `Accuracy`/`Macro F1` but no `Coverage` (evaluate_semisupervised never
+produces one), and `weak_supervision` uses a third schema entirely
+(`Label Accuracy`/`Label Macro F1`, from evaluate_label_quality) that matches
+neither list. Replaced with a looser check for one of three headline keys —
+one per real schema (unsupervised / semisupervised / label-quality).
+
 Code cell (sanity assertion + build table):
 ```python
+# Three real result schemas exist: unsupervised clustering (headline key
+# "ACC (Hungarian)"), semisupervised classification ("Accuracy" — note
+# full_supervised has no "Coverage", so checking for the full
+# UNSUPERVISED_KEYS/SEMISUPERVISED_KEYS sets is too strict), and label-quality
+# ("Label Accuracy", e.g. weak_supervision). Recognize any of the three.
+CORE_KEYS = ["ACC (Hungarian)", "Accuracy", "Label Accuracy"]
+
 for name, metrics in rows.items():
     if metrics.get("Status") == "pending":
         continue  # OpenAI placeholder rows carry no metrics yet
-    missing_unsup = [k for k in UNSUPERVISED_KEYS if k not in metrics]
-    missing_semisup = [k for k in SEMISUPERVISED_KEYS if k not in metrics]
-    assert not (missing_unsup and missing_semisup), \
-        f"'{name}' is missing all expected metric keys — got {list(metrics.keys())}"
+    assert any(k in metrics for k in CORE_KEYS), \
+        f"'{name}' doesn't match any recognized metrics schema — got {list(metrics.keys())}"
 
 df_results = pd.DataFrame(rows).T
 config.RESULTS_DIR.mkdir(parents=True, exist_ok=True)
