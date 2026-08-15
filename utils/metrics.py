@@ -52,6 +52,21 @@ def evaluate_unsupervised(true_labels, cluster_labels, embeddings) -> dict:
     cluster_labels = np.array(cluster_labels)
     mask = cluster_labels >= 0
 
+    # Handle edge case: if all points are noise, return default values
+    if mask.sum() == 0:
+        return {
+            "ACC (Hungarian)": 0.0,
+            "NMI": 0.0,
+            "ARI": 0.0,
+            "FMI": 0.0,
+            "Homogeneity": 0.0,
+            "Completeness": 0.0,
+            "V-Measure": 0.0,
+            "Silhouette Score": 0.0,
+            "Davies-Bouldin": 0.0,
+            "Coverage": 0.0,
+        }
+
     return {
         "ACC (Hungarian)": clustering_accuracy(true_labels[mask], cluster_labels[mask]),
         "NMI": normalized_mutual_info_score(true_labels[mask], cluster_labels[mask]),
