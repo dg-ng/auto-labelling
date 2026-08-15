@@ -23,11 +23,12 @@ def make_splits(train_df: pd.DataFrame, label_fraction: float, seed: int):
     """
     indexed_df = train_df.groupby("label", group_keys=False).apply(
         lambda x: x.sample(frac=label_fraction, random_state=seed))
-    labeled_df = train_df.loc[indexed_df.index].reset_index(drop=True)
-    unlabeled_df = train_df.drop(labeled_df.index).copy()
+    sampled_index = indexed_df.index
+    labeled_df = train_df.loc[sampled_index]
+    unlabeled_df = train_df.drop(sampled_index).copy()
     unlabeled_df["true_label"] = unlabeled_df["label"]
     unlabeled_df["label"] = -1
-    return labeled_df, unlabeled_df.reset_index(drop=True)
+    return labeled_df.reset_index(drop=True), unlabeled_df.reset_index(drop=True)
 
 
 def stratified_sample(df: pd.DataFrame, sample_size, seed: int, label_col: str = "label") -> pd.DataFrame:
@@ -38,6 +39,6 @@ def stratified_sample(df: pd.DataFrame, sample_size, seed: int, label_col: str =
     if label_col not in df.columns:
         return df.sample(n=sample_size, random_state=seed).reset_index(drop=True)
     frac = sample_size / len(df)
-    sampled = df.groupby(label_col, group_keys=False).apply(
+    indexed = df.groupby(label_col, group_keys=False).apply(
         lambda x: x.sample(frac=frac, random_state=seed))
-    return sampled.reset_index(drop=True)
+    return df.loc[indexed.index].reset_index(drop=True)
