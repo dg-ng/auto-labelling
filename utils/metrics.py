@@ -127,6 +127,16 @@ def evaluate_label_quality(true_labels, pseudo_labels, confidence_scores=None) -
     pseudo_labels = np.array(pseudo_labels)
     mask = pseudo_labels >= 0
 
+    # Handle edge case: no pseudo-labels were absorbed (e.g. confidence
+    # threshold never met, or pseudo_labels is empty) — accuracy_score/f1_score
+    # raise on empty input, so short-circuit with explicit zeros instead.
+    if mask.sum() == 0:
+        results = {"Label Accuracy": 0.0, "Label Macro F1": 0.0, "Coverage": 0.0}
+        if confidence_scores is not None:
+            results["Mean Confidence"] = 0.0
+            results["Median Confidence"] = 0.0
+        return results
+
     results = {
         "Label Accuracy": accuracy_score(true_labels[mask], pseudo_labels[mask]),
         "Label Macro F1": f1_score(true_labels[mask], pseudo_labels[mask], average="macro"),
