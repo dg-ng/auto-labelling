@@ -1037,6 +1037,8 @@ git commit -m "Add 01_embeddings notebook; add ROBERTA_SAMPLE_SIZE config"
 
 **Important — RoBERTa uses a different, smaller sample than the other methods (see Task 7's runtime note).** Its cached embeddings only cover `config.ROBERTA_SAMPLE_SIZE` rows, not `config.SAMPLE_SIZE`. The `true_labels` array used to score each method's clustering must be sampled the same way and the same size as that method's embeddings, or `evaluate_unsupervised` will silently misalign labels against embeddings (or crash on a shape mismatch). Load `roberta`'s true labels from a separately-sampled `roberta_train_sample`, not from the general `train_sample`.
 
+**Also important — gate OpenAI inclusion on cache existence, not just key presence.** Task 7's OpenAI cell degrades gracefully on API errors (e.g. quota exhaustion) — a configured `OPENAI_API_KEY` does not guarantee `openai_train_{suffix}.npy` actually exists. Check `load_cached(...) is not None` before adding `"openai"` to `METHODS`, not just `if config.OPENAI_API_KEY`.
+
 - [ ] **Step 1: Create the notebook with these cells, in order**
 
 Markdown cell:
@@ -1085,7 +1087,10 @@ roberta_suffix = f"n{config.ROBERTA_SAMPLE_SIZE}" if config.ROBERTA_SAMPLE_SIZE 
 roberta_true_labels = roberta_train_sample["label"].to_numpy()
 
 METHODS = ["tfidf", "minilm", "roberta"]
-if config.OPENAI_API_KEY:
+if config.OPENAI_API_KEY and load_cached(f"openai_train_{suffix}") is not None:
+    # Gate on cache existence, not just key presence — the OpenAI embedding
+    # cell in 01_embeddings degrades gracefully on API errors (e.g. quota
+    # exhaustion), so a configured key doesn't guarantee the cache exists.
     METHODS.append("openai")
 
 embeddings_by_method = {}
