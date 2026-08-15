@@ -43,6 +43,18 @@ of duplicated.
    `SAMPLE_SIZE`/full test set since they're all fast (local-cheap or a quick
    hosted API call). Raise `ROBERTA_SAMPLE_SIZE` to `None` alongside
    `SAMPLE_SIZE` for the full-scale final run, and budget hours, unattended.
+6. **Separate, smaller sample size for DistilBERT fine-tuning.** Also
+   discovered during implementation: fine-tuning (not just frozen embedding)
+   is even more CPU-expensive — `pseudo_label_loop`'s 4 training calls plus
+   3 prediction passes did not finish within a 3600-second cell timeout at
+   `SAMPLE_SIZE=8000`/~6000 labeled rows. `utils/config.py` adds
+   `CLASSIFIER_SAMPLE_SIZE = 500`, used by `05_pseudo_labeling` (both the
+   labeled and unlabeled pools) and `06_full_supervised_baseline` (its
+   training sample). This is a third, independent sample-size dial —
+   `SAMPLE_SIZE` (embeddings), `ROBERTA_SAMPLE_SIZE` (frozen RoBERTa), and
+   `CLASSIFIER_SAMPLE_SIZE` (fine-tuning) — each reflecting a different cost
+   profile. Raise `CLASSIFIER_SAMPLE_SIZE` to `None` alongside the others for
+   the full-scale final run, and budget several hours, unattended.
 
 ## Non-goals
 
