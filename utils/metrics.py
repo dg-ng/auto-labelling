@@ -52,8 +52,9 @@ def evaluate_unsupervised(true_labels, cluster_labels, embeddings) -> dict:
     cluster_labels = np.array(cluster_labels)
     mask = cluster_labels >= 0
 
-    # Handle edge case: if all points are noise, return default values
-    if mask.sum() == 0:
+    # Handle edge case: if insufficient non-noise clusters for silhouette/davies-bouldin
+    # (both require at least 2 distinct cluster labels), return default values
+    if mask.sum() == 0 or len(np.unique(cluster_labels[mask])) < 2:
         return {
             "ACC (Hungarian)": 0.0,
             "NMI": 0.0,
@@ -64,7 +65,7 @@ def evaluate_unsupervised(true_labels, cluster_labels, embeddings) -> dict:
             "V-Measure": 0.0,
             "Silhouette Score": 0.0,
             "Davies-Bouldin": 0.0,
-            "Coverage": 0.0,
+            "Coverage": mask.sum() / len(cluster_labels),
         }
 
     return {
