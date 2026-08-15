@@ -895,18 +895,30 @@ git commit -m "Add 00_data_transform notebook"
 - Create: `notebooks/01_embeddings.ipynb`
 
 **Interfaces:**
-- Consumes: `data/processed/{train_clean,test_clean}.parquet` (Task 6), `utils.data.stratified_sample`, `utils.embeddings.{get_tfidf_embeddings, get_sentence_embeddings, get_bert_embeddings, get_openai_embeddings}`
-- Produces: cached `.npy` files in `embeddings_cache/` named `{method}_{split}_{suffix}.npy` where `method ∈ {tfidf, minilm, roberta, openai}`, `split ∈ {train, test}`, `suffix` is `n{SAMPLE_SIZE}` for train or `full` for test — consumed by notebook tasks 8, 9.
+- Consumes: `data/processed/{train_clean,test_clean}.parquet` (Task 6), `utils.data.stratified_sample`, `utils.embeddings.{get_tfidf_embeddings, get_sentence_embeddings, get_bert_embeddings, get_openai_embeddings}`, `utils.config.ROBERTA_SAMPLE_SIZE` (new constant, added by this task)
+- Produces: cached `.npy` files in `embeddings_cache/` named `{method}_{split}_{suffix}.npy` where `method ∈ {tfidf, minilm, roberta, openai}`, `split ∈ {train, test}`. For `tfidf`/`minilm`/`openai`: `suffix` is `n{SAMPLE_SIZE}` for train or `full` for test. For `roberta`: `suffix` is `n{ROBERTA_SAMPLE_SIZE}` for **both** train and test (see note below) — consumed by notebook tasks 8, 9 (task 9/BERTopic doesn't use cached RoBERTa embeddings, only task 8 does).
 
-- [ ] **Step 1: Create the notebook with these cells, in order**
+**Runtime note — RoBERTa is embedded on a separate, much smaller sample than the other methods.** Measured on this machine, frozen RoBERTa CPU inference runs at roughly 0.5-1s/text once warmed up (not the ~99s/20-texts a cold first batch suggested) — but embedding the full `SAMPLE_SIZE=8000` train rows + 7,600 test rows would still take on the order of 2+ hours, far past what's practical for an interactive dev pass. TF-IDF, MiniLM, and OpenAI are all fast (TF-IDF/MiniLM are local and cheap; OpenAI is a fast hosted API call) and stay at the full `config.SAMPLE_SIZE`/full test set. RoBERTa alone uses a new `config.ROBERTA_SAMPLE_SIZE = 500` cap on **both** its train and test slices, so this notebook's RoBERTa cell completes in single-digit minutes. `ROBERTA_SAMPLE_SIZE` is added to `utils/config.py` as a new constant in this task's Step 1 (Task 1's config.py already exists and is being extended, not replaced — add the one line, don't touch anything else in that file). For the eventual full-scale final run (see "Final Run" section at the end of this plan), raise `ROBERTA_SAMPLE_SIZE` to `None` (full data) same as `SAMPLE_SIZE`, and budget hours, not minutes, run unattended.
+
+- [ ] **Step 1: Add `ROBERTA_SAMPLE_SIZE` to `utils/config.py`**
+
+Add this line to `utils/config.py` (from Task 1), directly after the existing `SAMPLE_SIZE = 8000` line — don't change anything else in the file:
+```python
+ROBERTA_SAMPLE_SIZE = 500  # separate, smaller cap for CPU-bound frozen RoBERTa embedding; None = full data
+```
+
+- [ ] **Step 2: Create the notebook with these cells, in order**
 
 Markdown cell:
 ```markdown
 # 01 — Embeddings
 
-Generates and caches TF-IDF, MiniLM, RoBERTa (frozen), and OpenAI embeddings
-for the (sampled) train set and the full test set. Downstream notebooks load
-from `embeddings_cache/` rather than recomputing.
+Generates and caches TF-IDF, MiniLM, RoBERTa (frozen), and OpenAI embeddings.
+TF-IDF/MiniLM/OpenAI run on the (sampled) train set and full test set.
+RoBERTa runs on its own smaller `ROBERTA_SAMPLE_SIZE` cap (both train and
+test) since CPU inference for a transformer is far slower than the other
+methods. Downstream notebooks load from `embeddings_cache/` rather than
+recomputing.
 ```
 
 Code cell (path setup + imports):
@@ -939,7 +951,14 @@ test_clean = pd.read_parquet(config.PROCESSED_DIR / "test_clean.parquet")
 train_sample = stratified_sample(train_clean, config.SAMPLE_SIZE, seed=config.SEED)
 suffix = f"n{config.SAMPLE_SIZE}" if config.SAMPLE_SIZE else "full"
 
-print(f"Embedding {len(train_sample)} train rows ({suffix}) and {len(test_clean)} test rows")
+roberta_train_sample = stratified_sample(train_clean, config.ROBERTA_SAMPLE_SIZE, seed=config.SEED)
+roberta_test_sample = stratified_sample(test_clean, config.ROBERTA_SAMPLE_SIZE, seed=config.SEED)
+roberta_suffix = f"n{config.ROBERTA_SAMPLE_SIZE}" if config.ROBERTA_SAMPLE_SIZE else "full"
+
+print(f"Embedding {len(train_sample)} train rows ({suffix}) and {len(test_clean)} test rows "
+      f"for tfidf/minilm/openai")
+print(f"Embedding {len(roberta_train_sample)} train rows and {len(roberta_test_sample)} test rows "
+      f"({roberta_suffix}) for roberta")
 ```
 
 Code cell (TF-IDF):
@@ -959,11 +978,12 @@ assert train_minilm.shape[0] == len(train_sample)
 print("MiniLM dims:", train_minilm.shape[1])
 ```
 
-Code cell (RoBERTa, frozen):
+Code cell (RoBERTa, frozen — separate smaller sample, see runtime note above):
 ```python
-train_roberta = get_bert_embeddings(train_sample["text"].tolist(), cache_name=f"roberta_train_{suffix}")
-test_roberta = get_bert_embeddings(test_clean["text"].tolist(), cache_name="roberta_test_full")
-assert train_roberta.shape[0] == len(train_sample)
+train_roberta = get_bert_embeddings(roberta_train_sample["text"].tolist(), cache_name=f"roberta_train_{roberta_suffix}")
+test_roberta = get_bert_embeddings(roberta_test_sample["text"].tolist(), cache_name=f"roberta_test_{roberta_suffix}")
+assert train_roberta.shape[0] == len(roberta_train_sample)
+assert test_roberta.shape[0] == len(roberta_test_sample)
 print("RoBERTa dims:", train_roberta.shape[1])
 ```
 
@@ -987,21 +1007,21 @@ print("No NaNs in any computed embedding matrix.")
 
 Use the `NotebookEdit` tool to create the file and add each cell in this order.
 
-- [ ] **Step 2: Execute the notebook end-to-end**
+- [ ] **Step 3: Execute the notebook end-to-end**
 
 Run: `uv run jupyter nbconvert --to notebook --execute --inplace notebooks/01_embeddings.ipynb --ExecutePreprocessor.timeout=1800`
-Expected: exits 0. This is the slowest notebook on CPU (RoBERTa embedding of ~8000+7600 texts) — allow up to 30 minutes.
+Expected: exits 0, completes in well under 30 minutes now that RoBERTa uses the small `ROBERTA_SAMPLE_SIZE` cap (~500 rows each side, single-digit minutes at measured throughput) instead of the full 8000+7600.
 
-- [ ] **Step 3: Verify cache files exist**
+- [ ] **Step 4: Verify cache files exist**
 
 Run: `ls embeddings_cache/`
-Expected: at least `tfidf_train_n8000.npy`, `tfidf_test_full.npy`, `minilm_train_n8000.npy`, `minilm_test_full.npy`, `roberta_train_n8000.npy`, `roberta_test_full.npy` (plus `openai_*` if an API key was configured).
+Expected: at least `tfidf_train_n8000.npy`, `tfidf_test_full.npy`, `minilm_train_n8000.npy`, `minilm_test_full.npy`, `roberta_train_n500.npy`, `roberta_test_n500.npy` (plus `openai_*` if an API key was configured). The pre-existing `tfidf_*`/`minilm_*` cache files from an earlier run are still valid and will be reused, not recomputed — that's expected.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add notebooks/01_embeddings.ipynb
-git commit -m "Add 01_embeddings notebook"
+git add utils/config.py notebooks/01_embeddings.ipynb
+git commit -m "Add 01_embeddings notebook; add ROBERTA_SAMPLE_SIZE config"
 ```
 
 ---
@@ -1014,6 +1034,8 @@ git commit -m "Add 01_embeddings notebook"
 **Interfaces:**
 - Consumes: cached embeddings from Task 7 via `utils.embeddings.load_cached`, `utils.metrics.evaluate_unsupervised`
 - Produces: `results/metrics_{method}_kmeans.json`, `results/metrics_{method}_hdbscan.json` for each embedding method — consumed by notebook task 13.
+
+**Important — RoBERTa uses a different, smaller sample than the other methods (see Task 7's runtime note).** Its cached embeddings only cover `config.ROBERTA_SAMPLE_SIZE` rows, not `config.SAMPLE_SIZE`. The `true_labels` array used to score each method's clustering must be sampled the same way and the same size as that method's embeddings, or `evaluate_unsupervised` will silently misalign labels against embeddings (or crash on a shape mismatch). Load `roberta`'s true labels from a separately-sampled `roberta_train_sample`, not from the general `train_sample`.
 
 - [ ] **Step 1: Create the notebook with these cells, in order**
 
@@ -1051,19 +1073,31 @@ from utils.metrics import evaluate_unsupervised
 Code cell (load embeddings + true labels):
 ```python
 train_clean = pd.read_parquet(config.PROCESSED_DIR / "train_clean.parquet")
+
 train_sample = stratified_sample(train_clean, config.SAMPLE_SIZE, seed=config.SEED)
 suffix = f"n{config.SAMPLE_SIZE}" if config.SAMPLE_SIZE else "full"
 true_labels = train_sample["label"].to_numpy()
+
+# RoBERTa was embedded on a separate, smaller sample (see Task 7) — its
+# true_labels must come from that same sample, not train_sample above.
+roberta_train_sample = stratified_sample(train_clean, config.ROBERTA_SAMPLE_SIZE, seed=config.SEED)
+roberta_suffix = f"n{config.ROBERTA_SAMPLE_SIZE}" if config.ROBERTA_SAMPLE_SIZE else "full"
+roberta_true_labels = roberta_train_sample["label"].to_numpy()
 
 METHODS = ["tfidf", "minilm", "roberta"]
 if config.OPENAI_API_KEY:
     METHODS.append("openai")
 
 embeddings_by_method = {}
+labels_by_method = {}
 for method in METHODS:
-    arr = load_cached(f"{method}_train_{suffix}")
+    method_suffix = roberta_suffix if method == "roberta" else suffix
+    arr = load_cached(f"{method}_train_{method_suffix}")
     assert arr is not None, f"Missing cached embeddings for '{method}' — run 01_embeddings.ipynb first"
     embeddings_by_method[method] = arr
+    labels_by_method[method] = roberta_true_labels if method == "roberta" else true_labels
+    assert arr.shape[0] == len(labels_by_method[method]), \
+        f"{method}: embeddings ({arr.shape[0]} rows) and labels ({len(labels_by_method[method])} rows) size mismatch"
 ```
 
 Code cell (cluster + evaluate + save):
@@ -1072,18 +1106,20 @@ config.RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 all_results = {}
 
 for method, emb in embeddings_by_method.items():
+    method_labels = labels_by_method[method]
+
     reducer = umap.UMAP(n_components=50, metric="cosine", random_state=config.SEED)
     emb_reduced = reducer.fit_transform(emb)
 
     kmeans = KMeans(n_clusters=config.NUM_CLASSES, random_state=config.SEED, n_init=10)
     km_labels = kmeans.fit_predict(emb_reduced)
-    km_metrics = evaluate_unsupervised(true_labels, km_labels, emb_reduced)
+    km_metrics = evaluate_unsupervised(method_labels, km_labels, emb_reduced)
     all_results[f"{method}_kmeans"] = km_metrics
 
     clusterer = hdbscan.HDBSCAN(min_cluster_size=50, metric="euclidean",
                                  cluster_selection_method="eom")
     hdb_labels = clusterer.fit_predict(emb_reduced)
-    hdb_metrics = evaluate_unsupervised(true_labels, hdb_labels, emb_reduced)
+    hdb_metrics = evaluate_unsupervised(method_labels, hdb_labels, emb_reduced)
     all_results[f"{method}_hdbscan"] = hdb_metrics
 
     print(f"{method}: KMeans ACC={km_metrics['ACC (Hungarian)']:.3f} | "

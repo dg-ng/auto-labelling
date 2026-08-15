@@ -32,6 +32,17 @@ of duplicated.
    the full `df` unchanged when `SAMPLE_SIZE is None`. The final comparison run
    sets `SAMPLE_SIZE = None` and reruns the heavy notebooks (`01`, `05`, `06`)
    unattended.
+5. **Separate, smaller sample size for frozen RoBERTa embedding.** Discovered
+   during implementation: on this machine, frozen RoBERTa CPU inference is far
+   slower than the other embedding methods — embedding the full
+   `SAMPLE_SIZE=8000` train rows + 7,600 test rows would take on the order of
+   hours, not minutes. `utils/config.py` adds `ROBERTA_SAMPLE_SIZE = 500`,
+   used only by `01_embeddings`'s RoBERTa cell (both its train and test
+   slices) and by `02_unsupervised_clustering` when scoring RoBERTa's
+   clusters. TF-IDF, MiniLM, and OpenAI are unaffected — they stay at
+   `SAMPLE_SIZE`/full test set since they're all fast (local-cheap or a quick
+   hosted API call). Raise `ROBERTA_SAMPLE_SIZE` to `None` alongside
+   `SAMPLE_SIZE` for the full-scale final run, and budget hours, unattended.
 
 ## Non-goals
 
