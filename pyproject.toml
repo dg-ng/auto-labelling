@@ -24,6 +24,7 @@ dependencies = [
     "jupyter",
     "nbconvert",
     "accelerate>=1.1.0",
+    "keybert>=0.9.0",
 ]
 
 [tool.uv]

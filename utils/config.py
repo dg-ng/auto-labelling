@@ -24,5 +24,25 @@ CLASSIFIER_SAMPLE_SIZE = 150  # separate, smaller cap for DistilBERT fine-tuning
 # keeps task 11 comfortably under budget with margin. See Task 11's plan note.
 CLASSIFIER_MODEL_NAME = "distilbert-base-uncased"
 
+# Additional semi-supervised model (mentor feedback item 1) — compared
+# *alongside* CLASSIFIER_MODEL_NAME in new 05b/06b notebooks, not replacing
+# it, so existing DistilBERT results stay intact. ELECTRA's replaced-token-
+# detection pretraining is a distinct family from BERT/DistilBERT/RoBERTa's
+# masked-LM objective. ~14M params — expected comparable-or-faster CPU
+# fine-tuning than DistilBERT-base's 66M.
+CLASSIFIER_MODEL_NAME_ALT = "google/electra-small-discriminator"
+
+# Summarize-then-zero-shot-classify labeling method (item 2, notebook 09).
+SUMMARIZATION_MODEL_NAME = "sshleifer/distilbart-cnn-6-6"
+ZERO_SHOT_MODEL_NAME = "valhalla/distilbart-mnli-12-3"
+# Separate cap for notebook 09 — two chained CPU generation/inference
+# passes per row (summarization + zero-shot), no fine-tuning. Starting
+# value; Task 2's smoke-test measures actual per-row throughput on this
+# machine and this value should be adjusted before Task 4's full run if
+# the measured throughput makes 200 rows clearly too slow/fast for a
+# practical unattended budget (same measure-then-set pattern already used
+# for ROBERTA_SAMPLE_SIZE/CLASSIFIER_SAMPLE_SIZE above).
+SUMMARIZATION_SAMPLE_SIZE = 200
+
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MODEL = "text-embedding-3-small"
