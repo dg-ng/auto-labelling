@@ -42,7 +42,11 @@ def save_label_samples(texts, predicted_labels, true_labels, class_names,
         take = min(n_per_class, len(subset))
         samples.append(subset.sample(n=take, random_state=seed))
     sample_df = pd.concat(samples, ignore_index=True) if samples else df.head(0)
-    sample_df["text"] = sample_df["text"].str.slice(0, 140)
+    # An empty `texts` input (or no predicted_label matching any class_names, e.g. a
+    # pseudo-labeling round that absorbed 0 new labels) leaves sample_df with 0 rows;
+    # pandas then infers "text" as float64 rather than string, which breaks .str below.
+    if len(sample_df) > 0:
+        sample_df["text"] = sample_df["text"].str.slice(0, 140)
 
     if path is not None:
         sample_df.to_csv(path, index=False)
