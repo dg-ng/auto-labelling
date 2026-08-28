@@ -57,12 +57,13 @@ def zero_shot_label(texts, class_names, model_name=ZERO_SHOT_MODEL_NAME,
     """
     from transformers import pipeline
 
+    names = list(class_names)
     classifier = pipeline("zero-shot-classification", model=model_name)
-    results = classifier(list(texts), candidate_labels=list(class_names),
+    results = classifier(list(texts), candidate_labels=names,
                           batch_size=batch_size)
     if isinstance(results, dict):
         results = [results]
 
-    predicted_labels = np.array([class_names.index(r["labels"][0]) for r in results])
+    predicted_labels = np.array([names.index(r["labels"][0]) for r in results])
     confidence = np.array([r["scores"][0] for r in results])
     return predicted_labels, confidence

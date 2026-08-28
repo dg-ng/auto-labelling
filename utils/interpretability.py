@@ -16,6 +16,8 @@ import pandas as pd
 from scipy.stats import mode
 from sklearn.feature_extraction.text import TfidfVectorizer
 
+from utils.config import SEED
+
 
 def top_terms_per_cluster(texts, cluster_labels, n_terms=10, exclude_noise=True) -> dict:
     """Representative TF-IDF terms per cluster.
@@ -84,13 +86,36 @@ def meaningful_terms_per_cluster(texts, cluster_labels, n_terms=5, exclude_noise
         if mask.sum() == 0:
             terms_by_cluster[c] = []
             continue
-        # Cap concatenated docs per cluster so KeyBERT stays fast even on
-        # large clusters — a representative sample, not the whole cluster.
-        cluster_text = " ".join(texts[mask][:200])
-        keywords = kw_model.extract_keywords(
-            cluster_text, keyphrase_ngram_range=(1, 3), stop_words="english",
+        # Extract keywords per-document (not one giant concatenated blob —
+        # that let n-grams span document boundaries and silently truncated
+        # the relevance-embedding anchor to a few articles). Cap the number
+        # of docs sampled per cluster so KeyBERT stays fast even on large
+        # clusters — a reproducible random sample, not the whole cluster.
+        cluster_docs = texts[mask]
+        n_sample = min(100, len(cluster_docs))
+        rng = np.random.default_rng(SEED)
+        sample_idx = rng.choice(len(cluster_docs), size=n_sample, replace=False)
+        docs = cluster_docs[sample_idx].tolist()
+
+        per_doc_keywords = kw_model.extract_keywords(
+            docs, keyphrase_ngram_range=(1, 3), stop_words="english",
             top_n=n_terms, use_mmr=True, diversity=0.5)
-        terms_by_cluster[c] = [phrase for phrase, score in keywords]
+        if docs and isinstance(per_doc_keywords[0], tuple):
+            # A single doc collapses the outer list — normalize to the
+            # same list-of-lists shape as the multi-doc case.
+            per_doc_keywords = [per_doc_keywords]
+
+        # Aggregate per-doc keyword scores across the sampled docs: summing
+        # scores per unique phrase naturally favors phrases that recur as
+        # top candidates across multiple docs over a single outlier
+        # document's highest-scoring phrase, keeping the result
+        # representative of the whole cluster.
+        agg_scores = {}
+        for doc_keywords in per_doc_keywords:
+            for phrase, score in doc_keywords:
+                agg_scores[phrase] = agg_scores.get(phrase, 0.0) + score
+        top_phrases = sorted(agg_scores.items(), key=lambda kv: kv[1], reverse=True)[:n_terms]
+        terms_by_cluster[c] = [phrase for phrase, score in top_phrases]
     return terms_by_cluster
 
 
@@ -154,7 +179,7 @@ def cluster_label_crosstab(cluster_labels, true_labels, class_names) -> pd.DataF
 def summarize_clusters(texts, cluster_labels, true_labels, embeddings, class_names,
                         n_terms=10, n_examples=3) -> pd.DataFrame:
     """One row per non-noise cluster: size, majority true label, purity,
-    top TF-IDF terms, and example documents nearest the centroid.
+    top KeyBERT key-phrases, and example documents nearest the centroid.
 
     This is the table to print/eyeball — it's the qualitative counterpart to
     `utils.metrics.evaluate_unsupervised`'s aggregate scores.

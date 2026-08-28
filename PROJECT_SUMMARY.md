@@ -1,7 +1,7 @@
 # Auto-Labeling for Text Classification — AG News
 
 **Project summary for presentation**
-Date: 2026-08-23
+Date: 2026-08-28
 
 ---
 
@@ -52,7 +52,7 @@ run at the same sample size.
 | Label propagation | Full 6,000-row labeled seed + 8,000 unlabeled rows (`SAMPLE_SIZE`) | 7,600 (overlap check only, not scored — no standalone classifier) |
 | Pseudo-labeling (self-training) | 400 labeled + 400 unlabeled = 800 total (`PSEUDO_LABEL_SAMPLE_SIZE`, notebook-local) | 7,600 (full) |
 | Full supervised (baseline) | 150 (`CLASSIFIER_SAMPLE_SIZE`) | 7,600 (full) |
-| Pseudo-labeling / Full supervised — **ELECTRA-small** (additive comparison, `05b`/`06b`) | Same caps as their DistilBERT counterparts above (800-row pool / 150-row cap) | 7,600 (full) |
+| Pseudo-labeling / Full supervised — **ELECTRA-small** (additive comparison, `05b`/`06b`) | Same caps as their DistilBERT counterparts above (400 labeled + 400 unlabeled (800-row pool) / 150-row cap) | 7,600 (full) |
 | Summarize + zero-shot classify | 200 (`SUMMARIZATION_SAMPLE_SIZE`), drawn from the 7,600-row test pool | (scored against the same rows' hidden labels) |
 
 (`LABEL_FRACTION=0.05` of 120,000 train rows gives the full 6,000-row
@@ -76,7 +76,7 @@ the caps actually used within that pool, not the pool sizes themselves.)
 
 Ground-truth labels are only used afterward, to score how well the discovered
 clusters line up with the real categories (via Hungarian-matching for
-accuracy). Qualitative inspection (top TF-IDF terms, example docs per
+accuracy). Qualitative inspection (top KeyBERT key-phrases, example docs per
 cluster, majority-label purity — `results/clusters_*.csv`) supplements the
 aggregate metrics below.
 
@@ -115,8 +115,9 @@ DistilBERT later"), `google/electra-small-discriminator` was run through the
 same pseudo-labeling (`notebooks/05b_pseudo_labeling_electra.ipynb`) and
 full-supervised (`notebooks/06b_full_supervised_baseline_electra.ipynb`)
 pipelines as DistilBERT, at matching sample sizes for each method
-(`CLASSIFIER_SAMPLE_SIZE=150` for full-supervised; the same 800-row pool for
-pseudo-labeling) — additive, run *alongside* DistilBERT's existing results,
+(`CLASSIFIER_SAMPLE_SIZE=150` for full-supervised; the same 400 labeled + 400
+unlabeled (800-row pool) for pseudo-labeling) — additive, run *alongside*
+DistilBERT's existing results,
 not replacing them. See Section 5 for the head-to-head numbers and
 discussion.
 
@@ -139,11 +140,11 @@ discussion.
 
 | Method | Test Accuracy | Macro F1 | Label Accuracy | Coverage | Notes |
 |---|---|---|---|---|---|
-| **Pseudo-labeling** (5% seed, self-trained, 400-row sample) | **0.887** | 0.887 | 0.907 | 1.00 | Now the best method in the whole table — see tuning story below |
-| Full supervised (100% labels, 150-row sample) | 0.852 | 0.852 | — | — | Upper-bound reference, but on a *much smaller* sample than pseudo-labeling (150 vs 400 rows) — see caveat below |
+| **Pseudo-labeling** (5% seed, self-trained, 400 labeled + 400 unlabeled (800-row pool)) | **0.887** | 0.887 | 0.907 | 1.00 | Now the best method in the whole table — see tuning story below |
+| Full supervised (100% labels, 150-row sample) | 0.852 | 0.852 | — | — | Upper-bound reference, but on a *much smaller* sample than pseudo-labeling (150 rows vs pseudo-labeling's 400 labeled + 400 unlabeled (800-row pool)) — see caveat below |
 | Label propagation (5% seed, no fine-tuning) | — | — | 0.872 | 1.00 | Zero training cost; scored on label quality, not test accuracy (it doesn't produce a standalone classifier) |
 | Weak supervision (Snorkel, label quality only) | — | — | 0.464 | 0.788 | Label Macro F1 0.444 |
-| Pseudo-labeling — **ELECTRA-small** (5% seed, self-trained, 800-row pool) | 0.839 | 0.837 | 0.823 | 1.00 | Additive comparison vs. the DistilBERT pseudo-labeling row above — confidence threshold retuned to 0.30 (not 0.80) since ELECTRA-small's round-0 confidence ceiling was only ~0.33 at this sample size; see `05b_pseudo_labeling_electra.ipynb` |
+| Pseudo-labeling — **ELECTRA-small** (5% seed, self-trained, 400 labeled + 400 unlabeled (800-row pool)) | 0.839 | 0.837 | 0.823 | 1.00 | Additive comparison vs. the DistilBERT pseudo-labeling row above — confidence threshold retuned to 0.30 (not 0.80) since ELECTRA-small's round-0 confidence ceiling was only ~0.33 at this sample size; see `05b_pseudo_labeling_electra.ipynb` |
 | Full supervised — **ELECTRA-small** (100% labels, 150-row sample) | 0.412 | 0.348 | — | — | Additive comparison vs. the DistilBERT full-supervised row above — see discussion below |
 | Summarize + zero-shot (200-row test sample, no fine-tuning) | 0.675 | 0.641 | — | — | New labeling method (`09_summarization_labeling.ipynb`) — summarize then zero-shot classify, no fine-tuning at all |
 
@@ -162,8 +163,8 @@ masked-LM pretraining does), and with only 150 examples and 3 epochs there
 isn't enough signal to learn a working head from scratch, whereas
 DistilBERT's architecture/pretraining converges faster on tiny samples.
 
-At the larger, self-training-grown pseudo-labeling sample (800-row pool),
-ELECTRA-small reaches 83.9% accuracy / 83.7% Macro F1, versus DistilBERT's
+At the larger, self-training-grown pseudo-labeling sample (400 labeled + 400
+unlabeled, 800-row pool), ELECTRA-small reaches 83.9% accuracy / 83.7% Macro F1, versus DistilBERT's
 88.7% / 88.7% at the same method — still behind DistilBERT, but a much
 smaller ~5-point gap.
 
@@ -176,8 +177,9 @@ categorically weaker than DistilBERT for this task. A fairer head-to-head
 would need both models run at matching, larger sample sizes than either has
 been tested at here — not yet done (see Section 7).
 
-> **Important caveat:** pseudo-labeling's 400-row sample and full-supervised's
-> 150-row sample are **not directly comparable at face value** — pseudo-labeling
+> **Important caveat:** pseudo-labeling's 400 labeled + 400 unlabeled (800-row
+> pool) and full-supervised's 150-row sample are **not directly comparable at
+> face value** — pseudo-labeling
 > currently gets ~2.7x more raw text data (its own labeled seed *plus* the
 > unlabeled pool it self-labels) than the full-supervised baseline's 150-row
 > cap, which exists purely to keep that notebook's runtime bounded (see
@@ -209,7 +211,8 @@ a safety cap on iterations is hit.
 - **Run 2** confirmed the threshold was the real bottleneck: lowering it to
   0.60 let the loop run genuinely for 4 rounds and lifted test accuracy to
   84.9%.
-- **Run 3** widened the sample to 400 rows at the same 0.60 threshold — big
+- **Run 3** widened the sample to 400 labeled + 400 unlabeled (800-row pool)
+  at the same 0.60 threshold — big
   accuracy win (88.6%) but the loop converged in a **single round** (374/400
   unlabeled rows already cleared 60% confidence on the very first pass,
   hitting 96.8% coverage before a second round could run). This was correct
@@ -280,8 +283,21 @@ cluster's members that share that majority label.
 | 0 | World | 0.87 | "Dhaka to announce reward for disclosing grenade attacker's... The Bangladeshi government may announce a..." |
 | 1 | Sports | 0.96 | "Hill out for nine months London - Richard Hill, a key member of the long-established England World Cup-winning back row,..." |
 
-(See `results/clusters_minilm_kmeans.csv` for all 4 clusters, top TF-IDF
-terms, and more example docs per cluster.)
+KeyBERT (per-document extraction, aggregated across a sampled ~100 docs per
+cluster) produces coherent, on-topic multi-word key-phrases per cluster —
+real output from `results/clusters_minilm_kmeans.csv` after the finding-1 fix
+(concatenated-doc extraction previously produced cross-document splices like
+"presidency castro injures"):
+
+| Cluster | Majority label | Top KeyBERT key-phrases (first 4 of 10) |
+|---|---|---|
+| 0 | World | sen john kerry, minister ariel sharon, arafat intensive care, submarine chicoutimi seaworthy |
+| 1 | Sports | grant hill scored, magic utah jazz, ap ap, moss doubtful sunday |
+| 2 | Sci/Tech | internet, vodafone begins 3g, netscape browser supports, microsoft |
+| 3 | Business | oil prices, economic growth, gallaher profits despite, tokyo stocks rise |
+
+(See `results/clusters_minilm_kmeans.csv` for all 4 clusters, top KeyBERT
+key-phrases, and more example docs per cluster.)
 
 ### Weak supervision (Snorkel) — label accuracy 46.4%
 
@@ -361,7 +377,8 @@ Full 8-row sample in `results/sample_labels_summarization.csv`.
 ## 7. Limitations / Next Steps
 
 - **Dev-scale sampling, and inconsistent sample sizes across methods**: the
-  full-supervised baseline (150 rows) and pseudo-labeling (400 rows) are not
+  full-supervised baseline (150 rows) and pseudo-labeling (400 labeled + 400
+  unlabeled, 800-row pool) are not
   on equal footing — see the caveat in Section 5. Re-running both at the
   same sample size would make the "pseudo-labeling beats full supervised"
   result trustworthy rather than confounded by sample-size differences.
@@ -382,8 +399,8 @@ Full 8-row sample in `results/sample_labels_summarization.csv`.
   precisely (see `docs/semi_supervised_methods.md` for other untried
   candidate methods — SetFit, FlexMatch, co-training, etc.).
 - **DistilBERT vs. ELECTRA-small at matching, larger sample sizes**: the
-  Section 5 comparison so far is at 150 rows (full supervised) and an
-  800-row pool (pseudo-labeling) — both regimes favor DistilBERT, with the
+  Section 5 comparison so far is at 150 rows (full supervised) and a
+  400 labeled + 400 unlabeled (800-row pool) (pseudo-labeling) — both regimes favor DistilBERT, with the
   gap narrowing sharply from 44 to 5 points as sample size grows. Whether
   that gap keeps closing (or reverses) at larger sample sizes is untested.
 - **Semantic-closeness / embedding-similarity label scoring** (deferred,
