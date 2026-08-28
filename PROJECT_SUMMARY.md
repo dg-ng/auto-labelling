@@ -140,7 +140,7 @@ discussion.
 | Method | Test Accuracy | Macro F1 | Label Accuracy | Coverage | Notes |
 |---|---|---|---|---|---|
 | **Pseudo-labeling** (5% seed, self-trained, 400-row sample) | **0.887** | 0.887 | 0.907 | 1.00 | Now the best method in the whole table — see tuning story below |
-| Full supervised (100% labels, 150-row sample) | 0.855 | 0.855 | — | — | Upper-bound reference, but on a *much smaller* sample than pseudo-labeling (150 vs 400 rows) — see caveat below |
+| Full supervised (100% labels, 150-row sample) | 0.852 | 0.852 | — | — | Upper-bound reference, but on a *much smaller* sample than pseudo-labeling (150 vs 400 rows) — see caveat below |
 | Label propagation (5% seed, no fine-tuning) | — | — | 0.872 | 1.00 | Zero training cost; scored on label quality, not test accuracy (it doesn't produce a standalone classifier) |
 | Weak supervision (Snorkel, label quality only) | — | — | 0.464 | 0.788 | Label Macro F1 0.444 |
 | Pseudo-labeling — **ELECTRA-small** (5% seed, self-trained, 800-row pool) | 0.839 | 0.837 | 0.823 | 1.00 | Additive comparison vs. the DistilBERT pseudo-labeling row above — confidence threshold retuned to 0.30 (not 0.80) since ELECTRA-small's round-0 confidence ceiling was only ~0.33 at this sample size; see `05b_pseudo_labeling_electra.ipynb` |
@@ -311,7 +311,7 @@ This matches its low 46% label accuracy — full 8-row sample in
 All 8 sampled rows were correct (matches its strong 87.2% label accuracy) —
 full sample in `results/sample_labels_label_propagation.csv`.
 
-### Full supervised baseline — test accuracy 85.5%
+### Full supervised baseline — test accuracy 85.2%
 
 | Text | Predicted | True | Correct | Confidence |
 |---|---|---|---|---|
