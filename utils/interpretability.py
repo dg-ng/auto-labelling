@@ -56,6 +56,44 @@ def top_terms_per_cluster(texts, cluster_labels, n_terms=10, exclude_noise=True)
     return terms_by_cluster
 
 
+def meaningful_terms_per_cluster(texts, cluster_labels, n_terms=5, exclude_noise=True,
+                                  embedding_model_name="all-MiniLM-L6-v2") -> dict:
+    """Meaningful multi-word key-phrases per cluster via KeyBERT, instead of
+    single TF-IDF top words (`top_terms_per_cluster`). Reuses the same
+    MiniLM sentence-transformer already used elsewhere in the repo
+    (`utils.embeddings.get_sentence_embeddings`) so phrase-embedding
+    similarity is consistent with the rest of the pipeline.
+
+    Returns {cluster_id: [phrase, ...]}, noise cluster (-1) excluded by
+    default, same contract as `top_terms_per_cluster`.
+    """
+    from keybert import KeyBERT
+    from sentence_transformers import SentenceTransformer
+
+    texts = np.array(texts, dtype=object)
+    cluster_labels = np.array(cluster_labels)
+    kw_model = KeyBERT(model=SentenceTransformer(embedding_model_name))
+
+    cluster_ids = sorted(np.unique(cluster_labels))
+    if exclude_noise:
+        cluster_ids = [c for c in cluster_ids if c >= 0]
+
+    terms_by_cluster = {}
+    for c in cluster_ids:
+        mask = cluster_labels == c
+        if mask.sum() == 0:
+            terms_by_cluster[c] = []
+            continue
+        # Cap concatenated docs per cluster so KeyBERT stays fast even on
+        # large clusters — a representative sample, not the whole cluster.
+        cluster_text = " ".join(texts[mask][:200])
+        keywords = kw_model.extract_keywords(
+            cluster_text, keyphrase_ngram_range=(1, 3), stop_words="english",
+            top_n=n_terms, use_mmr=True, diversity=0.5)
+        terms_by_cluster[c] = [phrase for phrase, score in keywords]
+    return terms_by_cluster
+
+
 def example_docs_per_cluster(texts, cluster_labels, embeddings, n_examples=3, exclude_noise=True) -> dict:
     """The `n_examples` documents nearest each cluster's centroid (cosine).
 
@@ -121,7 +159,7 @@ def summarize_clusters(texts, cluster_labels, true_labels, embeddings, class_nam
     This is the table to print/eyeball — it's the qualitative counterpart to
     `utils.metrics.evaluate_unsupervised`'s aggregate scores.
     """
-    terms = top_terms_per_cluster(texts, cluster_labels, n_terms=n_terms)
+    terms = meaningful_terms_per_cluster(texts, cluster_labels, n_terms=n_terms)
     examples = example_docs_per_cluster(texts, cluster_labels, embeddings, n_examples=n_examples)
     crosstab = cluster_label_crosstab(cluster_labels, true_labels, class_names)
     crosstab = crosstab[crosstab["cluster"] >= 0].copy()
