@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pandas as pd
 
 
@@ -50,3 +52,34 @@ def save_label_samples(texts, predicted_labels, true_labels, class_names,
     if path is not None:
         sample_df.to_csv(path, index=False)
     return sample_df
+
+
+def save_full_output(texts, predicted_labels, true_labels, class_names,
+                      confidence=None, extra_columns=None, path=None) -> pd.DataFrame:
+    """Save one row per input (no per-class sampling) — the full-row
+    counterpart to `save_label_samples`'s small qualitative spot-check.
+    Same column contract: predicted/true label names, a `correct` flag,
+    optional `confidence`, optional `extra_columns` (e.g. {"summary": [...]})
+    merged in row-aligned. Unlike `save_label_samples`, `text` is NOT
+    truncated here — this file is meant for full inspection, not a
+    print-friendly table.
+    """
+    def name_or_abstain(label):
+        return class_names[label] if label >= 0 else "ABSTAIN"
+
+    df = pd.DataFrame({
+        "text": list(texts),
+        "predicted_label": [name_or_abstain(p) for p in predicted_labels],
+        "true_label": [name_or_abstain(t) for t in true_labels],
+    })
+    df["correct"] = df["predicted_label"] == df["true_label"]
+    if confidence is not None:
+        df["confidence"] = confidence
+    if extra_columns:
+        for col_name, values in extra_columns.items():
+            df[col_name] = list(values)
+
+    if path is not None:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(path, index=False)
+    return df
