@@ -1,6 +1,6 @@
 import numpy as np
 
-from utils.config import SUMMARIZATION_MODEL_NAME, ZERO_SHOT_MODEL_NAME
+from utils.config import SUMMARIZATION_MODEL_NAME
 
 
 def summarize_texts(texts, model_name=SUMMARIZATION_MODEL_NAME, max_length=60,
@@ -44,26 +44,3 @@ def generate_titles(texts, model_name=SUMMARIZATION_MODEL_NAME, max_length=12,
     """
     return summarize_texts(texts, model_name=model_name, max_length=max_length,
                             min_length=min_length, batch_size=batch_size)
-
-
-def zero_shot_label(texts, class_names, model_name=ZERO_SHOT_MODEL_NAME,
-                     batch_size=8):
-    """Zero-shot-classify each text into one of `class_names` via an NLI model.
-
-    Returns (predicted_labels, confidence) as parallel numpy arrays —
-    predicted_labels are indices into class_names, confidence is the top
-    label's entailment score. Same shape/contract as utils.modeling's
-    prediction outputs so callers can reuse utils.metrics unchanged.
-    """
-    from transformers import pipeline
-
-    names = list(class_names)
-    classifier = pipeline("zero-shot-classification", model=model_name)
-    results = classifier(list(texts), candidate_labels=names,
-                          batch_size=batch_size)
-    if isinstance(results, dict):
-        results = [results]
-
-    predicted_labels = np.array([names.index(r["labels"][0]) for r in results])
-    confidence = np.array([r["scores"][0] for r in results])
-    return predicted_labels, confidence

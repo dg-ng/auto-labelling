@@ -1,17 +1,45 @@
 import pandas as pd
 
 
-def load_raw(path) -> pd.DataFrame:
-    """Load an AG News CSV. Files have a header row: Class Index,Title,Description."""
-    return pd.read_csv(path, header=0, names=["label", "title", "description"])
+def load_master_data(path, class_names, min_words: int = 5) -> pd.DataFrame:
+    """Load and clean `data/master_data.csv` (columns: category, title,
+    summary, text). Returns a DataFrame with `text` (title + body,
+    deduplicated), `category` (cleaned string), and `label` (0-indexed
+    position into `class_names`).
+
+    Cleaning: drops the source `summary` column (populated for only a
+    minority of rows/categories — every row gets a freshly generated
+    summary later, in 00_data_transform, instead of reusing this patchy
+    one), combines title+text into one `text` field, drops duplicate
+    `text` rows (keep first), and drops degenerate rows below `min_words`
+    words (e.g. a body of just "(CNN)").
+    """
+    df = pd.read_csv(path)
+    df = df.drop(columns=["summary"], errors="ignore")
+    df["text"] = (df["title"].fillna("") + " " + df["text"].fillna("")).str.strip()
+    df = df.drop_duplicates(subset="text", keep="first")
+
+    word_count = df["text"].str.split().str.len()
+    df = df[word_count >= min_words].copy()
+
+    df["category"] = df["category"].str.strip()
+    unknown = set(df["category"].unique()) - set(class_names)
+    assert not unknown, f"Unexpected categories not in class_names: {unknown}"
+
+    label_by_name = {name: i for i, name in enumerate(class_names)}
+    df["label"] = df["category"].map(label_by_name)
+    return df.reset_index(drop=True)
 
 
-def build_text_column(df: pd.DataFrame) -> pd.DataFrame:
-    """Combine title+description into `text` and 0-index the label column."""
-    df = df.copy()
-    df["text"] = df["title"].fillna("") + " " + df["description"].fillna("")
-    df["label"] = df["label"] - 1
-    return df
+def stratified_train_test_split(df: pd.DataFrame, test_fraction: float, seed: int,
+                                 label_col: str = "label"):
+    """Stratified train/test split by `label_col` (every class split at the
+    same fraction). Returns (train_df, test_df), both index-reset."""
+    from sklearn.model_selection import train_test_split
+
+    train_df, test_df = train_test_split(
+        df, test_size=test_fraction, stratify=df[label_col], random_state=seed)
+    return train_df.reset_index(drop=True), test_df.reset_index(drop=True)
 
 
 def make_splits(train_df: pd.DataFrame, label_fraction: float, seed: int):
