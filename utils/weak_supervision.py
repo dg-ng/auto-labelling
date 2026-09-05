@@ -49,6 +49,11 @@ def build_keyword_lfs(keywords_by_class):
 
     Returns a list of `snorkel.labeling.LabelingFunction`, skipping any
     class with an empty keyword list (e.g. zero seed rows for that class).
+
+    Note: The canonical way to invoke a Snorkel LF is via `lf(x)` (the
+    `__call__` method). The `.f` attribute exposed below is a non-standard
+    addition for compatibility with certain test patterns; it should not be
+    relied upon as part of Snorkel's standard API. Use `lf(x)` for production.
     """
     from snorkel.labeling import LabelingFunction
 
@@ -66,7 +71,9 @@ def build_keyword_lfs(keywords_by_class):
             continue
         fn = _make_fn(label, keywords)
         lf = LabelingFunction(name=f"lf_class_{label}", f=fn)
-        # Expose the function as .f for compatibility
+        # Non-standard: expose the function as .f for test compatibility.
+        # Real Snorkel LFs store callbacks as ._f and invoke via __call__.
+        # Use lf(x) in production; .f is for compatibility only.
         lf.f = fn
         lfs.append(lf)
     return lfs
