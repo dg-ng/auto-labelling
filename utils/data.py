@@ -7,15 +7,15 @@ def load_master_data(path, class_names, min_words: int = 5) -> pd.DataFrame:
     deduplicated), `category` (cleaned string), and `label` (0-indexed
     position into `class_names`).
 
-    Cleaning: drops the source `summary` column (populated for only a
-    minority of rows/categories — every row gets a freshly generated
-    summary later, in 00_data_transform, instead of reusing this patchy
-    one), combines title+text into one `text` field, drops duplicate
-    `text` rows (keep first), and drops degenerate rows below `min_words`
-    words (e.g. a body of just "(CNN)").
+    Cleaning: keeps the source `summary` column where present (populated
+    for only a minority of rows/categories, NaN elsewhere) — it's reused
+    as-is instead of being regenerated; only rows missing one get a
+    freshly generated summary later, in 00_data_transform. Also combines
+    title+text into one `text` field, drops duplicate `text` rows (keep
+    first), and drops degenerate rows below `min_words` words (e.g. a
+    body of just "(CNN)").
     """
     df = pd.read_csv(path)
-    df = df.drop(columns=["summary"], errors="ignore")
     df["text"] = (df["title"].fillna("") + " " + df["text"].fillna("")).str.strip()
     df = df.drop_duplicates(subset="text", keep="first")
 
