@@ -107,3 +107,46 @@ class names, so exact-match accuracy is well-defined as-is today — but a
 similarity-based score would generalize to any future method that produces
 more free-form generated labels. Same note appears in `PROJECT_SUMMARY.md`
 Section 7 so both docs agree.
+
+## Dataset pivot to master_data.csv (2026-09-05)
+
+Everything above describes the retired AG News (4-class) version of this
+project — see `docs/PROJECT_SUMMARY_AGNEWS_ARCHIVE.md`. The project has
+since pivoted to `data/master_data.csv`, a **16-class** dataset (ARTS &
+CULTURE, BUSINESS, COMEDY, CRIME, EDUCATION, ENTERTAINMENT, ENVIRONMENT,
+HEALTH, MEDIA, NEWS, POLITICS, RELIGION, SCIENCE, SPORTS, TECH, WOMEN),
+several of which overlap in subject matter. Three successive user-directed
+scope reductions during this rebuild shrank the working dataset from the
+full ~4,781 cleaned rows to a final 399 (319 train / 80 test), with a 5%
+labeled seed of just 16 rows — 1 example per class.
+
+Two methods changed as a direct result of the class-count and scale change:
+
+- **Weak supervision's labeling functions are now auto-derived, not
+  hand-written.** The AG News version hand-wrote one keyword list per class
+  (4 classes, easy to author and validate by eye). At 16 overlapping
+  classes, hand-authoring a distinct keyword list per class doesn't scale —
+  a human author can't reliably pick keywords that separate POLITICS from
+  NEWS from MEDIA from WOMEN from CRIME by inspection. `utils/weak_supervision.py`
+  instead derives each class's most TF-IDF-distinctive keywords directly
+  from the labeled seed (`derive_class_keywords`) and builds one Snorkel
+  `LabelingFunction` per class automatically. At the 1-example-per-class
+  seed size this rebuild ended up at, the auto-derived keywords pick up
+  that single document's idiosyncrasies rather than real class signal —
+  weak supervision lands at exactly chance accuracy (6.27% vs. a 6.25%
+  16-class baseline). See `PROJECT_SUMMARY.md` Section 5 for the numbers.
+- **Pseudo-labeling / self-training stalls completely at this seed size**,
+  for both DistilBERT and ELECTRA-small — every confidence threshold tried
+  absorbs exactly 0 new pseudo-labels at round 0. This is a much starker
+  failure than anything seen in the AG News version (whose thousands-of-rows
+  seed produced a real multi-round absorption curve). See
+  `PROJECT_SUMMARY.md` Section 6 for the per-round tables (a single stalled
+  row per model) and Section 9 for why a less aggressively capped seed size
+  would be needed to actually observe these dynamics.
+
+For every real number from this dataset pivot — clustering, weak
+supervision, label propagation, pseudo-labeling, and the full-supervised
+baseline — see `PROJECT_SUMMARY.md`'s Results section (Section 5) and its
+per-loop pseudo-labeling tables (Section 6). This file's role from here on
+is unchanged: a candidate/decision log for semi-supervised methods, not a
+results doc.
