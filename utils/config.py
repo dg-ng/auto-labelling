@@ -12,6 +12,11 @@ CACHE_DIR = REPO_ROOT / "embeddings_cache"
 RESULTS_DIR = REPO_ROOT / "results"
 
 MASTER_DATA_PATH = DATA_DIR / "master_data.csv"
+# Pre-generated summaries for all 4,800 rows (extractive first-3-sentences
+# for rows without neural summaries; neural BART summaries for the ~1,322
+# rows that had them from the source). Use this in 00_data_transform so no
+# model inference is needed at split time.
+SUMMARIZED_DATA_PATH = DATA_DIR / "master_data_summarized.csv"
 
 # 16 balanced categories in data/master_data.csv, alphabetical so the
 # label<->name mapping is deterministic and independent of CSV row order.
@@ -27,10 +32,9 @@ TEST_FRACTION = 0.20  # stratified train/test split of master_data.csv
 MIN_WORDS = 5  # drop degenerate rows (e.g. a body of just "(CNN)") below this word count
 
 # Cap on master_data.csv rows used for the whole rebuild (stratified per
-# class), applied once at data-cleaning time. Keeps the full pipeline
-# (summarization, embeddings, clustering, fine-tuning) tractable on this
-# CPU-only machine. None would mean the full cleaned dataset (~4,781 rows).
-MASTER_SAMPLE_SIZE = 400
+# class), applied once at data-cleaning time. None = full cleaned dataset
+# (~4,781 rows). Kept as a knob for fast dev-scale iteration if needed.
+MASTER_SAMPLE_SIZE = None
 
 # master_data.csv is only ~4,750 rows after cleaning (vs. AG News's
 # 120,000) — small enough that every method runs on the FULL dataset.
