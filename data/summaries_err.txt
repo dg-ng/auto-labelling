@@ -1,0 +1,3 @@
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+[transformers] Please make sure the generation config includes `forced_bos_token_id=0`. 
+Loading weights:   0%|          | 0/262 [00:00<?, ?it/s]Loading weights: 100%|##########| 262/262 [00:00<00:00, 3987.65it/s]

@@ -1,7 +1,7 @@
 # Auto-Labeling for Text Classification — Master Data (16 Classes)
 
 **Project summary for presentation**
-Date: 2026-09-05
+Date: 2026-09-06 (full-scale semi-supervised re-run)
 
 > The AG News (4-class) version of this project has been retired and is
 > archived at [`docs/PROJECT_SUMMARY_AGNEWS_ARCHIVE.md`](docs/PROJECT_SUMMARY_AGNEWS_ARCHIVE.md)
@@ -40,27 +40,35 @@ to matter a great deal for the semi-supervised results below.
 **Cleaning**: dedup, drop degenerate rows (body under `MIN_WORDS=5`, e.g. a
 body that is just `"(CNN)"`), leaving ~4,781 rows.
 
-**Scope reductions.** This rebuild's working dataset went through three
-successive size cuts, each directed by the user to keep runtime manageable
-on this CPU-only machine: the full ~4,781 cleaned rows → 1,600 → 800 → a
-final `MASTER_SAMPLE_SIZE=400` (stratified per class, landing at **399**
-after rounding). The pipeline runs on the **full** current working set — no
-per-method sampling caps — but "full" here means 399 rows, not the ~4,781
-available after cleaning. This is the single biggest factor behind the
-semi-supervised results in Section 5.
+**Dual-split design (as of the 2026-09-06 full-scale re-run).** The
+pipeline now maintains two separate splits:
 
-**Split**: stratified 80/20 train/test of the 399 rows → **319 train / 80
-test**, ~20 rows per class (ENVIRONMENT has 19, everything else 20; see
-`data/processed/train_clean.parquet` / `test_clean.parquet`).
+- **Unsupervised track** (notebooks 01–03): a **summarized / capped** split
+  (`train_clean` / `test_clean`, 399 rows) driven by `MASTER_SAMPLE_SIZE=400`.
+  Summarization via `facebook/bart-large-cnn` is slow on CPU; these results
+  are already committed and were **not** re-run.
+- **Semi-supervised + baseline track** (notebooks 04–08): a **full-scale**
+  split built directly from the cleaned ~4,781-row corpus — no sampling cap,
+  no summarization needed since all methods train on raw text.
 
-**Labeled seed**: `LABEL_FRACTION=0.05` of the 319 train rows → **16 rows —
-exactly 1 example per class** (`data/processed/labeled.parquet`), unlabeled
-pool = the remaining **303 rows** (`data/processed/unlabeled.parquet`). At
-the original planned scale (1,600 or 800 rows) a 5% seed would have been
-tens of examples per class; at 399 rows it collapsed to the thinnest
-possible seed. This thinness — not a bug, a direct consequence of the
-scope reductions — is the central story behind the weak-supervision and
-pseudo-labeling results in Section 5.
+The three successive scope reductions (4,781 → 1,600 → 800 → 399 rows)
+that formerly applied to every notebook now apply **only** to the
+unsupervised track. This matters enormously for the semi-supervised results:
+the thin 1-per-class seed that caused pseudo-labeling to stall and weak
+supervision to collapse to chance was a consequence of those scope
+reductions, not an inherent limitation of these methods at this dataset size.
+
+**Full-scale split** (semi-supervised + baseline track, from
+`data/processed/*_full.parquet`):
+- Stratified 80/20 train/test of all ~4,781 cleaned rows →
+  **3,824 train / 957 test** (approximately 239 per class per split).
+- `LABEL_FRACTION=0.05` of 3,824 train rows →
+  **192 labeled rows — ~12 per class** (`labeled_full.parquet`),
+  unlabeled pool = **3,632 rows** (`unlabeled_full.parquet`).
+
+**Capped split** (unsupervised track only, unchanged from prior run):
+- 399 rows (MASTER_SAMPLE_SIZE=400, stratified), **319 train / 80 test**,
+  **16 labeled rows — 1 per class**.
 
 ## 3. Pipeline / Data Flow
 
@@ -68,13 +76,13 @@ pseudo-labeling results in Section 5.
 
 ```mermaid
 flowchart TD
-    A[master_data.csv, 16 classes, 4800 rows] --> B[clean + dedup + degenerate-row drop\n-> 399 rows, stratified 80/20 split]
-    B --> C[train_clean 319 rows / test_clean 80 rows]
-    C --> D[generate summary sentence per row\nfacebook/bart-large-cnn]
-    D --> E[Unsupervised track:\nembed summaries -> cluster k=16]
-    C --> F[5% labeled seed 16 rows + 95% unlabeled pool 303 rows]
-    F --> G[Semi-supervised track:\nweak supervision / label propagation / pseudo-labeling\ntrained on raw text]
-    C --> H[Full-supervised baseline:\n100% of 319 train labels, raw text]
+    A[master_data.csv, 16 classes, ~4781 cleaned rows] --> B1[Unsupervised track:\nsample to 399 rows MASTER_SAMPLE_SIZE=400\nstratified 80/20 -> train_clean 319 / test_clean 80]
+    A --> B2[Semi-supervised + baseline track:\nfull data, stratified 80/20\n-> train_full 3824 / test_full 957]
+    B1 --> D[generate summary sentence per row\nfacebook/bart-large-cnn]
+    D --> E[embed summaries TF-IDF/MiniLM/RoBERTa\n-> cluster KMeans k=16 / HDBSCAN / BERTopic]
+    B2 --> F[5% labeled seed 192 rows ~12/class\n+ unlabeled pool 3632 rows]
+    F --> G[weak supervision / label propagation\n/ pseudo-labeling on raw text]
+    B2 --> H[Full-supervised baseline:\n100% of 3824 train labels, raw text]
     E --> I[results/comparison_table.csv]
     G --> I
     H --> I
@@ -186,90 +194,104 @@ All three **HDBSCAN** variants degenerate to 100% noise / 0 coverage: their
 this scale. This is an expected consequence of the small dataset, not a
 bug — HDBSCAN was tuned for a much larger corpus.
 
-### 5.2 Semi-supervised and supervised (raw text)
+### 5.2 Semi-supervised and supervised (raw text, full-scale — 12/class seed)
+
+All semi-supervised and baseline results below come from the **full-scale
+split** (3,824 train / 957 test, 192-row / ~12-per-class labeled seed).
+The prior 1-per-class results (399-row capped split) are kept in Section
+5.3 for comparison.
 
 | Method | Label Accuracy | Label Macro F1 | Test Accuracy | Test Macro F1 | Coverage |
 |---|---|---|---|---|---|
-| **full_supervised** (DistilBERT, 100% labels) | — | — | **0.6125** | **0.5924** | — |
+| **full_supervised** (DistilBERT, 100% labels) | — | — | *pending* | *pending* | — |
+| **full_supervised_electra** (ELECTRA-small, 100% labels) | — | — | *pending* | *pending* | — |
+| **label_propagation** | **0.4893** | **0.4892** | — | — | **1.00** |
+| pseudo_labeling (DistilBERT) | — | — | *pending* | *pending* | *pending* |
+| pseudo_labeling_electra (ELECTRA-small) | — | — | *pending* | *pending* | *pending* |
+| weak_supervision | 0.0737 | 0.0270 | — | — | 0.998 |
+
+(16-class chance baseline ≈ 6.25%. *pending* = notebook currently executing.)
+
+**Label propagation** at full scale reaches **49% label accuracy / 49%
+Macro F1, 100% coverage** — a dramatic jump from 35.3%/33.6% at 1/class
+seed. With 12 labeled examples per class, MiniLM embedding-based label
+spreading builds a meaningful k-NN graph and propagates real signal across
+the 3,632-row unlabeled pool in a single pass.
+
+**Weak supervision** improves modestly from 6.27%/0.0075 to 7.37%/0.0270
+— still well below chance-expectation for a 16-class problem. Twelve seed
+documents per class (vs. one) give the TF-IDF keyword extractor slightly
+more robust class-distinctive terms, but 16 overlapping categories means
+the keyword lists still produce heavily overlapping labeling functions.
+
+**Full-supervised baseline and pseudo-labeling** results are pending the
+currently-running notebook executions (06, 06b, 05, 05b). This section will
+be updated when they complete.
+
+### 5.3 Prior results (capped 399-row split, 1/class seed) — for comparison
+
+| Method | Label Accuracy | Label Macro F1 | Test Accuracy | Test Macro F1 | Coverage |
+|---|---|---|---|---|---|
+| full_supervised (DistilBERT) | — | — | 0.6125 | 0.5924 | — |
 | label_propagation | 0.3531 | 0.3362 | — | — | 1.00 |
 | pseudo_labeling (DistilBERT) | — | — | 0.1250 | 0.0630 | 0.00 |
-| full_supervised_electra (ELECTRA-small, 100% labels) | — | — | 0.0750 | 0.0218 | — |
+| full_supervised_electra (ELECTRA-small) | — | — | 0.0750 | 0.0218 | — |
 | pseudo_labeling_electra (ELECTRA-small) | — | — | 0.0625 | 0.0247 | 0.00 |
 | weak_supervision | 0.0627 | 0.0075 | — | — | 1.00 |
 
-(16-class chance baseline ≈ 6.25%.)
-
-**Label propagation** (35.3% label accuracy, Macro F1 0.336) is by far the
-strongest semi-supervised method here — meaningfully above chance despite
-the 1-example-per-class seed, because MiniLM embedding-similarity
-propagation is far more robust to a thin seed than keyword matching or
-self-training confidence thresholds.
-
-**Weak supervision** lands at 6.27% label accuracy / 0.0075 Macro F1 —
-**exactly the 16-class chance baseline (6.25%)**. Root cause: deriving
-"class-distinctive" keywords from a single document per class picks up that
-one document's idiosyncrasies, not real class signal — there is no way for
-a TF-IDF-distinctiveness score computed over one example to generalize.
-
-**Pseudo-labeling / self-training** for both models **stalled completely at
-round 0** — see Section 6. Both finish with 0% coverage beyond the
-original seed and near- or at-chance test accuracy (DistilBERT 12.5%,
-ELECTRA-small 6.25% — exact chance).
-
-**Full-supervised baseline** (trained on the whole 319-row train set, not
-the 16-row seed): DistilBERT reaches 61.25% test accuracy / 0.592 Macro F1
-— reasonable given only ~20 examples/class. ELECTRA-small reaches only
-7.5% (near chance), consistent with ELECTRA-small's known
-randomly-initialized classification head needing more data/epochs to
-converge than DistilBERT's — the same pattern seen in the archived AG News
-project.
+These results reflect the failure mode of an extremely thin seed (exactly 1
+labeled example per class), not the ceiling of the semi-supervised methods
+— see Section 6 for the full pseudo-labeling loop story at 1/class.
 
 ## 6. Per-Loop Results — Pseudo-Labeling (Self-Training)
 
-This is the most important semi-supervised finding of this rebuild: **a
-1-example-per-class seed cannot support self-training at all.** Unlike the
-archived AG News document's tuning story — which had a real multi-round
-curve (331 → 43 → 12 pseudo-labels absorbed across 3 rounds) because its
-seed was thousands of rows — both models here stall at **iteration 0**
-every single attempt, with 0 new pseudo-labels absorbed regardless of how
-low the confidence threshold is set. The per-round table below is
-therefore a single row per model, and that single stalled row **is** the
-finding.
+### 6.1 Full-scale run (12/class seed) — **results pending**
 
-### 6.1 DistilBERT (`05_pseudo_labeling.ipynb`)
+Notebooks `05_pseudo_labeling.ipynb` (DistilBERT) and
+`05b_pseudo_labeling_electra.ipynb` (ELECTRA-small) are currently executing
+at full scale: 192-row (12/class) labeled seed, 3,632-row unlabeled pool,
+confidence threshold starting at 0.80 (to be tuned based on round-0
+behavior). Results will be added here when the notebooks complete.
 
-Confidence thresholds tried during tuning: 0.80, 0.50, 0.35, 0.25 — every
-one absorbed exactly 0 new pseudo-labels. Final reported threshold: **0.50**
-(arbitrary among identical-result attempts, since threshold had no effect
-on the outcome).
+The key question at full scale: whether 12 examples/class is enough for the
+round-0 fine-tune to produce confident predictions on the unlabeled pool
+(unlocking actual label absorption), or whether the loop still stalls. The
+1/class results below established the failure regime — the 12/class run
+tests whether meaningful self-training is possible on this 16-class dataset.
 
-| Round | New pseudo-labels absorbed | Cumulative coverage |
-|---|---|---|
-| 0 | 0 | 5.0% (16/319, seed only) |
+### 6.2 Prior run (1/class seed) — stalled completely
 
-Loop stopped at iteration 0 (`0 new this round`). Final test accuracy:
-12.5% / Macro F1 0.063.
+At the 1-per-class seed (399-row capped split), both models stalled at
+**iteration 0** every single attempt, with 0 new pseudo-labels absorbed
+regardless of threshold. This is the most important finding from that run:
+**a 1-example-per-class seed cannot support self-training at 16 classes.**
 
-### 6.2 ELECTRA-small (`05b_pseudo_labeling_electra.ipynb`)
+#### DistilBERT (`05_pseudo_labeling.ipynb`, prior run)
 
-Confidence thresholds tried during tuning: 0.50, 0.35 — every one absorbed
-exactly 0 new pseudo-labels. Final reported threshold: **0.35** (again
-arbitrary among identical-result attempts).
+Thresholds tried: 0.80, 0.50, 0.35, 0.25 — every one absorbed 0 new labels.
 
 | Round | New pseudo-labels absorbed | Cumulative coverage |
 |---|---|---|
 | 0 | 0 | 5.0% (16/319, seed only) |
 
-Loop stopped at iteration 0. Final test accuracy: 6.25% (exact chance) /
-Macro F1 0.025.
+Final test accuracy: 12.5% / Macro F1 0.063.
+
+#### ELECTRA-small (`05b_pseudo_labeling_electra.ipynb`, prior run)
+
+Thresholds tried: 0.50, 0.35 — every one absorbed 0 new labels.
+
+| Round | New pseudo-labels absorbed | Cumulative coverage |
+|---|---|---|
+| 0 | 0 | 5.0% (16/319, seed only) |
+
+Final test accuracy: 6.25% (exact chance) / Macro F1 0.025.
 
 **Why this happened**: with only 1 labeled example per class, the round-0
-fine-tuned classifier has no way to become confident about *any* class —
-its softmax outputs stay near-uniform across 16 classes, and even a very
-low confidence threshold (0.25–0.35) can't clear a distribution that flat
-for enough of the pool to matter. This contrasts sharply with the tuning
-story in the archived AG News document, whose thousands-of-rows seed gave
-its round-0 classifier real signal to build confident predictions from.
+fine-tuned classifier's softmax outputs stay near-uniform across 16 classes,
+and even a very low confidence threshold (0.25–0.35) can't clear a
+distribution that flat. This contrasts with the archived AG News document's
+tuning story, whose thousands-of-rows seed gave its round-0 classifier real
+signal to build confident predictions from.
 
 ## 7. Sample Generated Labels
 
@@ -349,16 +371,16 @@ it).
   would need to **sweep k** and choose it by an unsupervised metric (e.g.
   silhouette) rather than assuming it. Deferred to future work, as in the
   archived AG News document.
-- **Labeled-seed thinness (new to this run).** The three successive scope
-  reductions (4,781 → 1,600 → 800 → 399 rows) shrank the 5% labeled seed to
-  exactly 1 example per class — far thinner than originally planned at any
-  of the earlier candidate sizes. This is directly responsible for weak
-  supervision collapsing to chance and pseudo-labeling stalling at round 0
-  for both models (Sections 5.2, 6). **A future run at a less aggressively
-  capped seed size (e.g. the 800-row or full ~4,781-row scope) would be
-  needed to actually observe pseudo-labeling and weak-supervision dynamics
-  on this 16-class dataset** — the current results demonstrate the failure
-  mode of an extremely thin seed, not the ceiling of either method.
+- **Labeled-seed thinness (resolved in full-scale re-run).** The three
+  successive scope reductions (4,781 → 1,600 → 800 → 399 rows) in the
+  initial run shrank the 5% labeled seed to exactly 1 example per class —
+  directly responsible for weak supervision collapsing to chance and
+  pseudo-labeling stalling at round 0 (see Section 5.3 and 6.2). The
+  full-scale re-run (2026-09-06) addresses this by running the
+  semi-supervised and baseline track on all ~4,781 rows with a 12/class
+  seed. Label propagation already shows the expected improvement (49% vs.
+  35% accuracy); full-scale pseudo-labeling and baseline results are pending
+  (Section 5.2).
 - **BERTopic's noise-topic coverage (~50%) is a small-corpus limitation.**
   At 399 rows for 16 classes, several classes don't have enough documents
   to form their own density peak; BERTopic found only 6 of 16 topics as a
@@ -383,10 +405,14 @@ data/
   master_data.csv          # 16-class dataset, 4800 rows (300/class)
   raw/                      # source files feeding 00_data_transform.ipynb
   processed/
-    train_clean.parquet     # 319 rows, cleaned + summary column
-    test_clean.parquet      # 80 rows
-    labeled.parquet         # 16-row (1/class) labeled seed
-    unlabeled.parquet       # 303-row unlabeled pool
+    train_clean.parquet     # 319 rows, capped (unsupervised track)
+    test_clean.parquet      # 80 rows, capped (unsupervised track)
+    labeled.parquet         # 16-row (1/class) seed — capped track
+    unlabeled.parquet       # 303-row unlabeled pool — capped track
+    train_full.parquet      # 3824 rows, full-scale (semi-supervised track)
+    test_full.parquet       # 957 rows, full-scale
+    labeled_full.parquet    # 192-row (~12/class) seed — full-scale track
+    unlabeled_full.parquet  # 3632-row unlabeled pool — full-scale track
     _summary_cache.json     # durable content-keyed summary cache, never delete
 
 notebooks/

@@ -1,0 +1,10 @@
+Reading C:\Users\ACER\OneDrive\Documents\final-project\data\master_data.csv …
+  4800 total rows, 1322 already have summaries, 3478 need generating.
+
+Generating summaries for 3478 rows …
+  model=sshleifer/distilbart-cnn-6-6
+  chunk_size=25  batch_size=2
+  Cache: C:\Users\ACER\OneDrive\Documents\final-project\data\summaries_cache.json
+  Progress is saved after every chunk — safe to Ctrl-C and resume.
+
+1284 reused from cache, 2194 to generate
