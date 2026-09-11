@@ -402,17 +402,18 @@ it).
   pseudo-labeling stalling at round 0 (see Section 5.3 and 6.2). The
   full-scale re-run (2026-09-06) addresses this by running the
   semi-supervised and baseline track on all ~4,781 rows with a 12/class
-  seed. Label propagation already shows the expected improvement (49% vs.
-  35% accuracy); full-scale pseudo-labeling and baseline results are pending
-  (Section 5.2).
+  seed. All full-scale results are now complete — see Section 5.2.
 - **BERTopic's noise-topic coverage (~50%) is a small-corpus limitation.**
   At 399 rows for 16 classes, several classes don't have enough documents
   to form their own density peak; BERTopic found only 6 of 16 topics as a
   result. A larger corpus (see above) would likely resolve this too.
-- **HDBSCAN's fixed `min_cluster_size=50`** exceeds the ~20-row true
-  cluster size at this scale for all three embeddings, degenerating to
-  100% noise. Would need retuning (or a data-size-aware default) to be
-  useful on a corpus this small.
+- **HDBSCAN's fixed `min_cluster_size=50`** is generous relative to the
+  ~20-row true cluster size. At the capped 399-row scale all three HDBSCAN
+  variants degenerated to 100% noise; at full scale (notebook 02's final
+  run) tfidf_hdbscan (29.8% coverage) and minilm_hdbscan (58.2%) do
+  produce non-noise clusters, but roberta_hdbscan clusters only 2 groups
+  with near-zero inter-cluster angular separation (see notebook 09).
+  A data-size-aware `min_cluster_size` would improve coverage further.
 - **OpenAI embeddings are pending** — `openai_kmeans` / `openai_hdbscan` are
   wired up in the pipeline but not run in this environment (no API key
   configured).
@@ -451,6 +452,7 @@ notebooks/
   06b_full_supervised_baseline_electra.ipynb # ELECTRA-small, 100% train labels
   07_comparison.ipynb               # aggregates results/comparison_table.csv
   08_label_propagation.ipynb        # MiniLM k-NN graph + LabelSpreading
+  09_cluster_similarity.ipynb       # intra/inter-cluster cosine similarity for all unsupervised methods
 
 utils/
   config.py             # paths, class names, seed, sample-size knobs
@@ -467,12 +469,15 @@ utils/
   samples.py            # sample/full-label CSV writers
 
 results/
-  comparison_table.csv           # one row per method, all headline metrics
-  metrics_<method>.json          # per-method metrics (+ history for pseudo-labeling)
-  sample_labels_<method>.csv     # small qualitative sample
-  full_labels_<method>.csv       # every row scored by that method
-  confusion_matrix_<method>.png  # supervised/pseudo-labeling confusion matrices
-  comparison_bar_chart.png       # visual summary across methods
+  comparison_table.csv                    # one row per method, all headline metrics
+  metrics_<method>.json                   # per-method metrics (+ history for pseudo-labeling)
+  sample_labels_<method>.csv             # small qualitative sample
+  full_labels_<method>.csv               # every row scored by that method
+  confusion_matrix_<method>.png          # supervised/pseudo-labeling confusion matrices
+  comparison_bar_chart.png               # visual summary across methods
+  cluster_similarity_summary.csv         # cross-method intra/inter-cluster cosine sim table
+  cluster_sim_heatmap_<method>.png       # centroid-to-centroid similarity heatmap per clustering method
+  cluster_similarity_comparison.png      # intra vs. inter-cluster bar chart with separation ratios
 
 docs/
   PROJECT_SUMMARY_AGNEWS_ARCHIVE.md  # retired AG News (4-class) version
