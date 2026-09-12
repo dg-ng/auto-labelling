@@ -217,5 +217,11 @@ def train_dec(
             loss.backward()
             optim_dec.step()
 
+    # Recompute final labels from the fully-trained encoder (catches last update_interval-1 epochs)
+    encoder.eval()
+    with torch.no_grad():
+        q_final = _soft_assignment(encoder(X), centers)
+    final_labels = q_final.argmax(dim=1).numpy().astype(np.int32)
+
     print(f"[DEC] Done. {len(np.unique(final_labels))} non-empty clusters.")
     return final_labels

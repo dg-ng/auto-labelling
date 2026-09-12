@@ -26,6 +26,11 @@ dependencies = [
     "accelerate>=1.1.0",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest",
+]
+
 [tool.uv]
 package = false
 

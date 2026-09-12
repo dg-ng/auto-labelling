@@ -44,7 +44,7 @@ body that is just `"(CNN)"`), leaving ~4,781 rows.
 pipeline now maintains two separate splits:
 
 - **Unsupervised track** (notebooks 01–02): a **summarized / capped** split
-  (`train_clean` / `test_clean`, 399 rows) driven by `MASTER_SAMPLE_SIZE=400`.
+  (`train_clean` / `test_clean`, 399 rows) driven by `SAMPLE_SIZE=400`.
   Summarization via `facebook/bart-large-cnn` is slow on CPU; these results
   are already committed and were **not** re-run.
 - **Semi-supervised + baseline track** (notebooks 04–08): a **full-scale**
@@ -67,7 +67,7 @@ reductions, not an inherent limitation of these methods at this dataset size.
   unlabeled pool = **3,632 rows** (`unlabeled_full.parquet`).
 
 **Capped split** (unsupervised track only, unchanged from prior run):
-- 399 rows (MASTER_SAMPLE_SIZE=400, stratified), **319 train / 80 test**,
+- 399 rows (SAMPLE_SIZE=400, stratified), **319 train / 80 test**,
   **16 labeled rows — 1 per class**.
 
 ## 3. Pipeline / Data Flow
@@ -76,7 +76,7 @@ reductions, not an inherent limitation of these methods at this dataset size.
 
 ```mermaid
 flowchart TD
-    A[master_data.csv, 16 classes, ~4781 cleaned rows] --> B1[Unsupervised track:\nsample to 399 rows MASTER_SAMPLE_SIZE=400\nstratified 80/20 -> train_clean 319 / test_clean 80]
+    A[master_data.csv, 16 classes, ~4781 cleaned rows] --> B1[Unsupervised track:\nsample to 399 rows SAMPLE_SIZE=400\nstratified 80/20 -> train_clean 319 / test_clean 80]
     A --> B2[Semi-supervised + baseline track:\nfull data, stratified 80/20\n-> train_full 3824 / test_full 957]
     B1 --> D[generate summary sentence per row\nfacebook/bart-large-cnn]
     D --> E[embed summaries MiniLM/RoBERTa\n-> cluster KMeans/Agglomerative/DEC k=16\n6 outcomes]
@@ -175,32 +175,33 @@ against.
 
 ## 5. Results
 
-### 5.1 Unsupervised clustering (k=16, on generated summaries, capped 319-row train split)
+### 5.1 Unsupervised clustering (k=16, on generated summaries, 3,824-row train split)
 
 | Method | ACC (Hungarian) | Macro F1 | NMI | ARI | Silhouette | Coverage |
 |---|---|---|---|---|---|---|
-| **minilm_agglomerative** | **0.4550** | **0.4475** | 0.4852 | 0.2097 | 0.0528 | 1.00 |
-| minilm_kmeans | 0.4050 | 0.3878 | 0.4710 | 0.1822 | 0.0503 | 1.00 |
-| roberta_kmeans | 0.3350 | 0.3209 | 0.4154 | 0.1309 | 0.0846 | 1.00 |
-| roberta_agglomerative | 0.3300 | 0.3188 | 0.4053 | 0.1208 | 0.0772 | 1.00 |
-| **minilm_dec** | *pending — run notebook 02 end-to-end* | | | | | |
-| **roberta_dec** | *pending — run notebook 02 end-to-end* | | | | | |
+| **minilm_agglomerative** | **0.4506** | **0.4406** | 0.4041 | 0.2637 | 0.0307 | 1.00 |
+| minilm_kmeans | 0.4482 | 0.4443 | 0.4178 | 0.2840 | 0.0374 | 1.00 |
+| minilm_dec | 0.2633 | 0.2514 | 0.2346 | 0.1207 | −0.0067 | 1.00 |
+| roberta_kmeans | 0.2440 | 0.2351 | 0.2469 | 0.1143 | 0.0706 | 1.00 |
+| roberta_agglomerative | 0.2432 | 0.2335 | 0.2494 | 0.1147 | 0.0533 | 1.00 |
+| roberta_dec | 0.1470 | 0.1284 | 0.1150 | 0.0482 | 0.0528 | 1.00 |
 
-**`minilm_agglomerative` is the best fully-covering unsupervised method** to
-date (ACC 45.5%, Macro F1 44.8%). Agglomerative clustering with ward linkage
-outperforms KMeans on MiniLM embeddings, consistent with its hierarchical
-merge objective capturing local density structure. RoBERTa embeddings
-underperform MiniLM on this capped 319-row run; all four completed methods
-achieve 100% coverage by design (no noise points, unlike HDBSCAN).
+**`minilm_agglomerative` is the best unsupervised method** (ACC 45.1%, Macro
+F1 44.1%), narrowly ahead of `minilm_kmeans` (ACC 44.8%). Agglomerative
+clustering with ward linkage and UMAP-reduced MiniLM embeddings gives slightly
+tighter clusters than KMeans at this scale. All six methods achieve 100%
+coverage by design (no noise points — all three algorithms assign every row).
 
-DEC results are pending the user's full notebook 02 production run:
+**RoBERTa embeddings underperform MiniLM** across all three clusterers. The
+gap is large: RoBERTa KMeans (24.4%) vs MiniLM KMeans (44.8%), suggesting the
+RoBERTa `[CLS]` representation is less calibrated for angular separation in
+this 16-class news domain than the MiniLM sentence-embedding model.
 
-```
-jupyter nbconvert --to notebook --execute notebooks/02_unsupervised_clustering.ipynb \
-  --ExecutePreprocessor.timeout=7200
-```
-
-(~30–60 min on CPU for both DEC models; KMeans/Agglomerative complete in minutes.)
+**DEC underperforms KMeans and Agglomerative** on both embeddings. Despite
+learning its own 64-dim latent space, the KL-divergence refinement converges to
+a fixed-epoch snapshot (delta ~2–3% at termination, above the 1e-3 tolerance)
+that is inferior to the UMAP-based methods. MiniLM DEC reaches 26.3% ACC vs
+MiniLM Agglomerative's 45.1%.
 
 ### 5.2 Semi-supervised and supervised (raw text, full-scale — 12/class seed)
 
@@ -506,7 +507,7 @@ utils/
   weak_supervision.py   # auto-derived per-class TF-IDF labeling functions
   label_propagation.py  # k-NN graph + LabelSpreading
   modeling.py           # fine-tuning helpers (DistilBERT/ELECTRA-small)
-  interpretability.py   # cluster-term extraction (KeyBERT-based)
+  interpretability.py   # cluster-term extraction (TF-IDF-based)
   metrics.py            # shared metric computation
   samples.py            # sample/full-label CSV writers
   dec.py                # DEC model, autoencoder pretraining, KL divergence refinement

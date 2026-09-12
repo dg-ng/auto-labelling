@@ -131,7 +131,8 @@ def _hungarian_remap(true_labels: np.ndarray, cluster_labels: np.ndarray) -> np.
 
     row_ind, col_ind = linear_sum_assignment(-cost_matrix)
     cluster_to_class = {int(cluster_ids[r]): int(class_ids[c])
-                        for r, c in zip(row_ind, col_ind) if r < len(cluster_ids)}
+                        for r, c in zip(row_ind, col_ind)
+                        if r < len(cluster_ids) and c < len(class_ids)}
 
     remapped = np.array([cluster_to_class.get(int(cl), -1) for cl in cluster_labels])
     return remapped
