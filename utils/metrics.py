@@ -47,7 +47,23 @@ def clustering_accuracy(true_labels, cluster_labels) -> float:
     return correct / total
 
 
-def evaluate_unsupervised(true_labels, cluster_labels, embeddings) -> dict:
+def evaluate_unsupervised(
+    true_labels,
+    cluster_labels,
+    embeddings,
+    metric_sample_size: int | None = None,
+    seed: int = 42,
+) -> dict:
+    """Evaluate unsupervised clustering quality.
+
+    Args:
+        true_labels: Ground-truth integer class labels.
+        cluster_labels: Predicted cluster labels (noise = -1).
+        embeddings: Original embedding matrix (rows match true_labels).
+        metric_sample_size: If set, subsample this many rows for Silhouette /
+            Davies-Bouldin computation (expensive on large datasets).
+        seed: Random seed used when subsampling.
+    """
     true_labels = np.array(true_labels)
     cluster_labels = np.array(cluster_labels)
     mask = cluster_labels >= 0
@@ -57,6 +73,7 @@ def evaluate_unsupervised(true_labels, cluster_labels, embeddings) -> dict:
     if mask.sum() == 0 or len(np.unique(cluster_labels[mask])) < 2:
         return {
             "ACC (Hungarian)": 0.0,
+            "Macro F1": 0.0,
             "NMI": 0.0,
             "ARI": 0.0,
             "FMI": 0.0,
@@ -68,18 +85,80 @@ def evaluate_unsupervised(true_labels, cluster_labels, embeddings) -> dict:
             "Coverage": mask.sum() / len(cluster_labels),
         }
 
+    # Hungarian-matched accuracy and F1
+    acc = clustering_accuracy(true_labels[mask], cluster_labels[mask])
+    matched_pred = _hungarian_remap(true_labels[mask], cluster_labels[mask])
+    macro_f1 = f1_score(true_labels[mask], matched_pred, average="macro", zero_division=0)
+
+    # Subsample for expensive distance-based metrics
+    emb_masked = np.array(embeddings)[mask]
+    cl_masked = cluster_labels[mask]
+    if metric_sample_size is not None and len(cl_masked) > metric_sample_size:
+        rng = np.random.RandomState(seed)
+        idx = rng.choice(len(cl_masked), size=metric_sample_size, replace=False)
+        emb_s, cl_s = emb_masked[idx], cl_masked[idx]
+    else:
+        emb_s, cl_s = emb_masked, cl_masked
+
     return {
-        "ACC (Hungarian)": clustering_accuracy(true_labels[mask], cluster_labels[mask]),
+        "ACC (Hungarian)": acc,
+        "Macro F1": macro_f1,
         "NMI": normalized_mutual_info_score(true_labels[mask], cluster_labels[mask]),
         "ARI": adjusted_rand_score(true_labels[mask], cluster_labels[mask]),
         "FMI": fowlkes_mallows_score(true_labels[mask], cluster_labels[mask]),
         "Homogeneity": homogeneity_score(true_labels[mask], cluster_labels[mask]),
         "Completeness": completeness_score(true_labels[mask], cluster_labels[mask]),
         "V-Measure": v_measure_score(true_labels[mask], cluster_labels[mask]),
-        "Silhouette Score": silhouette_score(embeddings[mask], cluster_labels[mask], metric="cosine"),
-        "Davies-Bouldin": davies_bouldin_score(embeddings[mask], cluster_labels[mask]),
+        "Silhouette Score": silhouette_score(emb_s, cl_s, metric="cosine"),
+        "Davies-Bouldin": davies_bouldin_score(emb_s, cl_s),
         "Coverage": mask.sum() / len(cluster_labels),
     }
+
+
+def _hungarian_remap(true_labels: np.ndarray, cluster_labels: np.ndarray) -> np.ndarray:
+    """Return cluster_labels remapped to class indices via Hungarian matching."""
+    true_labels = np.array(true_labels)
+    cluster_labels = np.array(cluster_labels)
+
+    class_ids = np.unique(true_labels)
+    cluster_ids = np.unique(cluster_labels)
+    size = max(len(class_ids), len(cluster_ids))
+
+    cost_matrix = np.zeros((size, size))
+    for ci, c in enumerate(cluster_ids):
+        for ki, k in enumerate(class_ids):
+            cost_matrix[ci, ki] = np.sum((cluster_labels == c) & (true_labels == k))
+
+    row_ind, col_ind = linear_sum_assignment(-cost_matrix)
+    cluster_to_class = {int(cluster_ids[r]): int(class_ids[c])
+                        for r, c in zip(row_ind, col_ind) if r < len(cluster_ids)}
+
+    remapped = np.array([cluster_to_class.get(int(cl), -1) for cl in cluster_labels])
+    return remapped
+
+
+def hungarian_match_predictions(true_labels, cluster_labels) -> np.ndarray:
+    """Remap cluster_labels to class indices via Hungarian assignment.
+
+    Handles *all* rows (including noise / unassigned rows with label -1).
+    Noise rows are left as -1 in the output.
+
+    Args:
+        true_labels: Ground-truth integer class labels (all rows).
+        cluster_labels: Raw cluster label array (all rows; -1 = noise).
+
+    Returns:
+        Integer array of the same length with cluster IDs replaced by the
+        best-matching class IDs per the Hungarian algorithm.
+    """
+    true_labels = np.array(true_labels)
+    cluster_labels = np.array(cluster_labels)
+    mask = cluster_labels >= 0
+
+    result = np.full_like(cluster_labels, fill_value=-1)
+    if mask.sum() > 0:
+        result[mask] = _hungarian_remap(true_labels[mask], cluster_labels[mask])
+    return result
 
 
 def majority_vote_mapping(cluster_labels, true_labels, n_clusters) -> dict:

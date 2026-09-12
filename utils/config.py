@@ -11,13 +11,31 @@ PROCESSED_DIR = DATA_DIR / "processed"
 CACHE_DIR = REPO_ROOT / "embeddings_cache"
 RESULTS_DIR = REPO_ROOT / "results"
 
-CLASS_NAMES = ["World", "Sports", "Business", "Sci/Tech"]
-NUM_CLASSES = 4
+CLASS_NAMES = [
+    "ARTS & CULTURE",  # 0
+    "BUSINESS",        # 1
+    "COMEDY",          # 2
+    "CRIME",           # 3
+    "EDUCATION",       # 4
+    "ENTERTAINMENT",   # 5
+    "ENVIRONMENT",     # 6
+    "HEALTH",          # 7
+    "MEDIA",           # 8
+    "NEWS",            # 9
+    "POLITICS",        # 10
+    "RELIGION",        # 11
+    "SCIENCE",         # 12
+    "SPORTS",          # 13
+    "TECH",            # 14
+    "WOMEN",           # 15
+]
+NUM_CLASSES = 16
 SEED = 42
 LABEL_FRACTION = 0.05
 SAMPLE_SIZE = 8000  # train-set dev cap; set to None for the full-data final run
 ROBERTA_SAMPLE_SIZE = 500  # separate, smaller cap for CPU-bound frozen RoBERTa embedding; None = full data
 CLASSIFIER_SAMPLE_SIZE = 150  # separate, smaller cap for DistilBERT fine-tuning (tasks 11, 12); None = full data
+SILHOUETTE_SAMPLE_SIZE = 2000  # max rows for silhouette_score computation (subsampled for speed)
 # Measured on this machine: fine-tuning throughput is ~0.54s/row/epoch and
 # frozen-model inference is ~0.12s/row (CPU). At 500 rows, task 11's 4
 # fine-tune calls + prediction passes exceeded a 3600s cell timeout; 150
