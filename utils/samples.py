@@ -1,85 +1,63 @@
-from pathlib import Path
+"""Utilities for saving per-row output tables from clustering / classification runs.
 
+Each row in the output CSV contains the original text, the model's predicted
+label (class name string), the true label (class name string), and any
+caller-supplied extra columns.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import numpy as np
 import pandas as pd
 
 
-def save_label_samples(texts, predicted_labels, true_labels, class_names,
-                        confidence=None, extra_columns=None, n_per_class=2,
-                        seed=None, path=None):
-    """Save a small, stratified qualitative sample of (text, predicted label,
-    true label, correct[, confidence][, extra columns]) to CSV.
+def save_full_output(
+    texts: list[str],
+    predicted: np.ndarray,
+    true_labels: np.ndarray,
+    class_names: list[str],
+    extra_columns: dict[str, Any] | None = None,
+    path: str | Path = "results/full_labels.csv",
+) -> pd.DataFrame:
+    """Build and save a per-row output CSV.
 
-    Meant for presentation: a handful of actual generated labels per
-    predicted class, alongside the aggregate metrics already reported
-    elsewhere. Not a substitute for the metrics — just a spot-check a human
-    reader can eyeball.
+    Args:
+        texts: Original document strings, one per row.
+        predicted: Integer predicted class indices (after Hungarian remapping),
+            shape (N,). -1 entries are written as the string "UNASSIGNED".
+        true_labels: Integer ground-truth class indices, shape (N,).
+        class_names: List mapping integer index → class name string.
+        extra_columns: Optional dict of additional column_name -> list/array
+            values to include in the output (e.g. {"summary": summaries}).
+        path: File path to write the CSV. Parent directories are created
+            automatically.
 
-    `extra_columns`, if given, is a dict of {column_name: values} (same
-    length/order as `texts`) merged in before sampling so it stays
-    row-aligned — e.g. {"summary": [...], "generated_title": [...]} for
-    the summarization-labeling method. Unlike `text`, extra columns are
-    not truncated.
+    Returns:
+        The saved DataFrame.
     """
-    def name_or_abstain(label):
-        return class_names[label] if label >= 0 else "ABSTAIN"
+    predicted = np.asarray(predicted)
+    true_labels = np.asarray(true_labels)
 
-    df = pd.DataFrame({
-        "text": list(texts),
-        "predicted_label": [name_or_abstain(p) for p in predicted_labels],
-        "true_label": [name_or_abstain(t) for t in true_labels],
-    })
-    df["correct"] = df["predicted_label"] == df["true_label"]
-    if confidence is not None:
-        df["confidence"] = confidence
+    def _label_name(idx: int) -> str:
+        if idx < 0 or idx >= len(class_names):
+            return "UNASSIGNED"
+        return class_names[idx]
+
+    rows: dict[str, Any] = {
+        "text": texts,
+        "predicted_label": [_label_name(int(p)) for p in predicted],
+        "true_label": [_label_name(int(t)) for t in true_labels],
+    }
+
     if extra_columns:
         for col_name, values in extra_columns.items():
-            df[col_name] = list(values)
+            rows[col_name] = list(values)
 
-    samples = []
-    for cls in class_names:
-        subset = df[df["predicted_label"] == cls]
-        if len(subset) == 0:
-            continue
-        take = min(n_per_class, len(subset))
-        samples.append(subset.sample(n=take, random_state=seed))
-    sample_df = pd.concat(samples, ignore_index=True) if samples else df.head(0)
-    # An empty `texts` input (or no predicted_label matching any class_names, e.g. a
-    # pseudo-labeling round that absorbed 0 new labels) leaves sample_df with 0 rows;
-    # pandas then infers "text" as float64 rather than string, which breaks .str below.
-    if len(sample_df) > 0:
-        sample_df["text"] = sample_df["text"].str.slice(0, 140)
-
-    if path is not None:
-        sample_df.to_csv(path, index=False)
-    return sample_df
-
-
-def save_full_output(texts, predicted_labels, true_labels, class_names,
-                      confidence=None, extra_columns=None, path=None) -> pd.DataFrame:
-    """Save one row per input (no per-class sampling) — the full-row
-    counterpart to `save_label_samples`'s small qualitative spot-check.
-    Same column contract: predicted/true label names, a `correct` flag,
-    optional `confidence`, optional `extra_columns` (e.g. {"summary": [...]})
-    merged in row-aligned. Unlike `save_label_samples`, `text` is NOT
-    truncated here — this file is meant for full inspection, not a
-    print-friendly table.
-    """
-    def name_or_abstain(label):
-        return class_names[label] if label >= 0 else "ABSTAIN"
-
-    df = pd.DataFrame({
-        "text": list(texts),
-        "predicted_label": [name_or_abstain(p) for p in predicted_labels],
-        "true_label": [name_or_abstain(t) for t in true_labels],
-    })
-    df["correct"] = df["predicted_label"] == df["true_label"]
-    if confidence is not None:
-        df["confidence"] = confidence
-    if extra_columns:
-        for col_name, values in extra_columns.items():
-            df[col_name] = list(values)
-
-    if path is not None:
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(path, index=False)
+    df = pd.DataFrame(rows)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(path, index=False)
     return df

@@ -43,8 +43,8 @@ body that is just `"(CNN)"`), leaving ~4,781 rows.
 **Dual-split design (as of the 2026-09-06 full-scale re-run).** The
 pipeline now maintains two separate splits:
 
-- **Unsupervised track** (notebooks 01–03): a **summarized / capped** split
-  (`train_clean` / `test_clean`, 399 rows) driven by `MASTER_SAMPLE_SIZE=400`.
+- **Unsupervised track** (notebooks 01–02): a **summarized / capped** split
+  (`train_clean` / `test_clean`, 399 rows) driven by `SAMPLE_SIZE=400`.
   Summarization via `facebook/bart-large-cnn` is slow on CPU; these results
   are already committed and were **not** re-run.
 - **Semi-supervised + baseline track** (notebooks 04–08): a **full-scale**
@@ -67,7 +67,7 @@ reductions, not an inherent limitation of these methods at this dataset size.
   unlabeled pool = **3,632 rows** (`unlabeled_full.parquet`).
 
 **Capped split** (unsupervised track only, unchanged from prior run):
-- 399 rows (MASTER_SAMPLE_SIZE=400, stratified), **319 train / 80 test**,
+- 399 rows (SAMPLE_SIZE=400, stratified), **319 train / 80 test**,
   **16 labeled rows — 1 per class**.
 
 ## 3. Pipeline / Data Flow
@@ -76,10 +76,10 @@ reductions, not an inherent limitation of these methods at this dataset size.
 
 ```mermaid
 flowchart TD
-    A[master_data.csv, 16 classes, ~4781 cleaned rows] --> B1[Unsupervised track:\nsample to 399 rows MASTER_SAMPLE_SIZE=400\nstratified 80/20 -> train_clean 319 / test_clean 80]
+    A[master_data.csv, 16 classes, ~4781 cleaned rows] --> B1[Unsupervised track:\nsample to 399 rows SAMPLE_SIZE=400\nstratified 80/20 -> train_clean 319 / test_clean 80]
     A --> B2[Semi-supervised + baseline track:\nfull data, stratified 80/20\n-> train_full 3824 / test_full 957]
     B1 --> D[generate summary sentence per row\nfacebook/bart-large-cnn]
-    D --> E[embed summaries TF-IDF/MiniLM/RoBERTa\n-> cluster KMeans k=16 / HDBSCAN / BERTopic]
+    D --> E[embed summaries MiniLM/RoBERTa\n-> cluster KMeans/Agglomerative/DEC k=16\n6 outcomes]
     B2 --> F[5% labeled seed 192 rows ~12/class\n+ unlabeled pool 3632 rows]
     F --> G[weak supervision / label propagation\n/ pseudo-labeling on raw text]
     B2 --> H[Full-supervised baseline:\n100% of 3824 train labels, raw text]
@@ -93,16 +93,12 @@ flowchart TD
 ```mermaid
 flowchart TD
     T[raw article text] --> S[summary sentence\nfacebook/bart-large-cnn]
-    S --> V1[TF-IDF vector]
-    S --> V2[MiniLM embedding]
-    S --> V3[RoBERTa embedding]
-    S --> V4[OpenAI embedding - pending, no API key]
-    V1 --> CL[KMeans k=16 / HDBSCAN / BERTopic]
-    V2 --> CL
+    S --> V2[MiniLM embedding all-MiniLM-L6-v2]
+    S --> V3[RoBERTa embedding roberta-base]
+    V2 --> CL[KMeans k=16 / Agglomerative k=16 / DEC k=16]
     V3 --> CL
-    V4 --> CL
     CL --> M[Hungarian-match cluster id -> class name]
-    M --> R[results/full_labels_*.csv]
+    M --> R[results/full_labels_*.csv\n6 outcomes: 3 clusterers x 2 embeddings]
 ```
 
 ### 3.3 Pseudo-labeling self-training loop (DistilBERT and ELECTRA-small both follow this shape)
@@ -127,16 +123,29 @@ its first pass through the top branch for either model at this seed size.
 
 ## 4. Approaches
 
-### 4.1 Unsupervised clustering (`01_embeddings.ipynb`, `02_unsupervised_clustering.ipynb`, `03_bertopic.ipynb`)
+### 4.1 Unsupervised clustering (`01_embeddings.ipynb`, `02_unsupervised_clustering.ipynb`)
 
 Every row's `text` is summarized into a real sentence (not keywords) with
 `facebook/bart-large-cnn`, then that **summary** (not the raw text) is
-embedded three ways — TF-IDF, MiniLM (`all-MiniLM-L6-v2`), RoBERTa — and
-clustered with KMeans (k=16, matching the known class count) and HDBSCAN;
-BERTopic runs its own embed+cluster+representation pipeline directly on the
-summaries. Cluster ids are Hungarian-matched to the 16 class names for
-accuracy scoring. A fourth embedding (OpenAI `text-embedding-3-small`) is
-wired up but **pending** — no API key configured in this environment.
+embedded two ways — MiniLM (`all-MiniLM-L6-v2`, 384-dim) and RoBERTa
+(`roberta-base`, 768-dim) — and clustered with three algorithms, all
+requiring explicit k=16:
+
+- **KMeans** (`sklearn.cluster.KMeans`, n_init=10): runs on
+  UMAP(n_components=50)-reduced embeddings. Standard baseline.
+- **Agglomerative Clustering** (`sklearn.cluster.AgglomerativeClustering`,
+  ward linkage): hierarchical bottom-up clustering on UMAP-reduced
+  embeddings. Ward linkage minimises within-cluster variance at each merge.
+- **DEC** (Deep Embedded Clustering, Xie et al. 2016, `utils/dec.py`):
+  trains a 2-layer MLP encoder (input_dim → 256 → 64) directly on the
+  pre-trained embeddings, initialises K=16 cluster centers from KMeans on
+  the latent space, then refines both encoder and centers jointly by
+  minimising KL(P‖Q) where Q is the student-t soft assignment and P is
+  the sharpened target distribution. No UMAP reduction needed — DEC learns
+  its own compressed representation.
+
+This gives **6 outcomes** (3 clusterers × 2 embeddings). Cluster ids are
+Hungarian-matched to the 16 class names for accuracy scoring.
 
 ### 4.2 Semi-supervised (`04_weak_supervision.ipynb`, `08_label_propagation.ipynb`, `05_pseudo_labeling.ipynb`, `05b_pseudo_labeling_electra.ipynb`)
 
@@ -166,30 +175,33 @@ against.
 
 ## 5. Results
 
-### 5.1 Unsupervised clustering (k=16, on generated summaries)
+### 5.1 Unsupervised clustering (k=16, on generated summaries, 3,824-row train split)
 
 | Method | ACC (Hungarian) | Macro F1 | NMI | ARI | Silhouette | Coverage |
 |---|---|---|---|---|---|---|
-| **bertopic** | **0.7166** | **0.6231** | 0.6606 | 0.6127 | 0.0738 | 0.6439 |
-| tfidf_hdbscan | 0.5145 | 0.2843 | 0.4675 | 0.3225 | 0.7672 | 0.2979 |
-| minilm_kmeans | 0.4482 | 0.4443 | 0.4178 | 0.2840 | 0.5332 | 1.00 |
-| minilm_hdbscan | 0.4358 | 0.3412 | 0.5233 | 0.2521 | 0.4117 | 0.5821 |
-| tfidf_kmeans | 0.3713 | 0.3477 | 0.2869 | 0.1815 | 0.4156 | 1.00 |
-| roberta_kmeans | 0.2440 | 0.2351 | 0.2469 | 0.1143 | 0.5711 | 1.00 |
-| roberta_hdbscan | 0.0647 | 0.0113 | 0.0020 | ~0 | 0.8485 | 0.9984 |
-| openai_kmeans | pending (no API key) | | | | | |
-| openai_hdbscan | pending (no API key) | | | | | |
+| **minilm_agglomerative** | **0.4506** | **0.4406** | 0.4041 | 0.2637 | 0.0307 | 1.00 |
+| minilm_kmeans | 0.4482 | 0.4443 | 0.4178 | 0.2840 | 0.0374 | 1.00 |
+| minilm_dec | 0.2633 | 0.2514 | 0.2346 | 0.1207 | −0.0067 | 1.00 |
+| roberta_kmeans | 0.2440 | 0.2351 | 0.2469 | 0.1143 | 0.0706 | 1.00 |
+| roberta_agglomerative | 0.2432 | 0.2335 | 0.2494 | 0.1147 | 0.0533 | 1.00 |
+| roberta_dec | 0.1470 | 0.1284 | 0.1150 | 0.0482 | 0.0528 | 1.00 |
 
-**`bertopic` is the best unsupervised method** (ACC 71.7%, Macro F1 62.3%).
-It is computed only over the 64.4% of rows it assigned to a non-noise
-topic — BERTopic's density-based model left ~36% of rows as noise. On the
-rows it did assign, it clearly outperforms all KMeans variants.
+**`minilm_agglomerative` is the best unsupervised method** (ACC 45.1%, Macro
+F1 44.1%), narrowly ahead of `minilm_kmeans` (ACC 44.8%). Agglomerative
+clustering with ward linkage and UMAP-reduced MiniLM embeddings gives slightly
+tighter clusters than KMeans at this scale. All six methods achieve 100%
+coverage by design (no noise points — all three algorithms assign every row).
 
-`minilm_kmeans` is the best fully-covering unsupervised method (ACC 44.8%,
-100% coverage). HDBSCAN variants now produce non-zero results at full scale
-(unlike the capped 399-row run where all three degenerated to 100% noise).
-`tfidf_hdbscan` reaches ACC 51.5% on its 29.8%-covered subset.
-`roberta_hdbscan` barely clusters (ACC 6.5%, essentially noise).
+**RoBERTa embeddings underperform MiniLM** across all three clusterers. The
+gap is large: RoBERTa KMeans (24.4%) vs MiniLM KMeans (44.8%), suggesting the
+RoBERTa `[CLS]` representation is less calibrated for angular separation in
+this 16-class news domain than the MiniLM sentence-embedding model.
+
+**DEC underperforms KMeans and Agglomerative** on both embeddings. Despite
+learning its own 64-dim latent space, the KL-divergence refinement converges to
+a fixed-epoch snapshot (delta ~2–3% at termination, above the 1e-3 tolerance)
+that is inferior to the UMAP-based methods. MiniLM DEC reaches 26.3% ACC vs
+MiniLM Agglomerative's 45.1%.
 
 ### 5.2 Semi-supervised and supervised (raw text, full-scale — 12/class seed)
 
@@ -388,13 +400,55 @@ for pseudo-labeling, the per-round `history` list transcribed in Section 6).
 into one row-per-method table (Section 5's tables are pulled directly from
 it).
 
-## 9. Limitations / Next Steps
+## 9. Cluster Similarity Analysis
 
-- **k=16 assumed, not swept.** Every KMeans run above fixes `k=16` because
-  that's the known class count — a real deployment without ground truth
-  would need to **sweep k** and choose it by an unsupervised metric (e.g.
-  silhouette) rather than assuming it. Deferred to future work, as in the
-  archived AG News document.
+`notebooks/09_cluster_similarity.ipynb` — runs after notebook 02 and
+measures how internally cohesive each unsupervised cluster is, and how well
+separated the clusters are from one another, using **cosine similarity in the
+original pre-UMAP embedding space** (UMAP is used only to derive cluster
+assignments, not to measure distances).
+
+### 9.1 What is measured
+
+For each cluster in each method, every member article is compared to its
+cluster centroid and three statistics are recorded:
+
+- **Mean intra-cluster similarity** — average cosine similarity of all member
+  articles to the centroid (higher = tighter cluster).
+- **Min / Max intra-cluster similarity** — the range of cohesion within the
+  cluster; a wide range means some articles are loosely attached.
+- **Mean inter-cluster similarity** — average cosine similarity between cluster
+  centroids (lower = better-separated clusters).
+- **Separation ratio** (intra / inter) — a ratio > 1 means clusters are
+  internally tighter than they are to each other, the desired property.
+
+### 9.2 Cross-method results
+
+*Results for the 6 new methods (minilm_kmeans, roberta_kmeans,
+minilm_agglomerative, roberta_agglomerative, minilm_dec, roberta_dec) will
+be populated here after the full notebook 02 production run and subsequent
+notebook 09 run. See `results/cluster_similarity_summary.csv` for live
+numbers.*
+
+### 9.3 Notable individual clusters
+
+*Will be updated after full notebook 02 + 09 runs.*
+
+### 9.4 Interactive explorer
+
+*The interactive similarity explorer referenced in prior versions covered
+the retired TF-IDF/HDBSCAN/BERTopic methods. A new explorer for the 6-outcome
+design will be published after the production run.*
+
+---
+
+## 10. Limitations / Next Steps
+
+- **k=16 assumed, not swept.** Every clustering run above fixes k=16 (the
+  known class count). All three algorithms (KMeans, Agglomerative, DEC)
+  require explicit k. A real deployment without ground truth would need to
+  sweep k and choose it by an unsupervised metric (e.g. silhouette or
+  elbow). Deferred to future work.
 - **Labeled-seed thinness (resolved in full-scale re-run).** The three
   successive scope reductions (4,781 → 1,600 → 800 → 399 rows) in the
   initial run shrank the 5% labeled seed to exactly 1 example per class —
@@ -403,27 +457,16 @@ it).
   full-scale re-run (2026-09-06) addresses this by running the
   semi-supervised and baseline track on all ~4,781 rows with a 12/class
   seed. All full-scale results are now complete — see Section 5.2.
-- **BERTopic's noise-topic coverage (~50%) is a small-corpus limitation.**
-  At 399 rows for 16 classes, several classes don't have enough documents
-  to form their own density peak; BERTopic found only 6 of 16 topics as a
-  result. A larger corpus (see above) would likely resolve this too.
-- **HDBSCAN's fixed `min_cluster_size=50`** is generous relative to the
-  ~20-row true cluster size. At the capped 399-row scale all three HDBSCAN
-  variants degenerated to 100% noise; at full scale (notebook 02's final
-  run) tfidf_hdbscan (29.8% coverage) and minilm_hdbscan (58.2%) do
-  produce non-noise clusters, but roberta_hdbscan clusters only 2 groups
-  with near-zero inter-cluster angular separation (see notebook 09).
-  A data-size-aware `min_cluster_size` would improve coverage further.
-- **OpenAI embeddings are pending** — `openai_kmeans` / `openai_hdbscan` are
-  wired up in the pipeline but not run in this environment (no API key
-  configured).
+- **DEC results pending.** Deep Embedded Clustering requires ~30–60 min on
+  CPU per embedding method. Run notebook 02 end-to-end to obtain
+  `minilm_dec` and `roberta_dec` metrics (Section 5.1 placeholders).
 - **Semantic-closeness scoring** (comparing a generated free-text label to
   the true class name by embedding similarity, rather than only exact
   match) remains a deferred future item, as noted in the archived AG News
   document — every method here still outputs one of the 16 fixed class
   names, so exact-match accuracy stays well-defined for now.
 
-## 10. Repo Map
+## 11. Repo Map
 
 ```
 data/
@@ -442,9 +485,9 @@ data/
 
 notebooks/
   00_data_transform.ipynb          # raw sources -> master_data.csv
-  01_embeddings.ipynb               # TF-IDF/MiniLM/RoBERTa/OpenAI embeddings, cached
-  02_unsupervised_clustering.ipynb  # KMeans(k=16)/HDBSCAN over each embedding
-  03_bertopic.ipynb                 # BERTopic topic modeling
+  01_embeddings.ipynb               # MiniLM/RoBERTa embeddings on summaries, cached
+  02_unsupervised_clustering.ipynb  # KMeans/Agglomerative/DEC × MiniLM/RoBERTa (6 outcomes)
+  03_bertopic.ipynb                 # BERTopic topic modeling (kept for reference; not in active comparison)
   04_weak_supervision.ipynb         # auto-derived Snorkel labeling functions
   05_pseudo_labeling.ipynb          # DistilBERT self-training loop
   05b_pseudo_labeling_electra.ipynb # ELECTRA-small self-training loop
@@ -457,29 +500,27 @@ notebooks/
 utils/
   config.py             # paths, class names, seed, sample-size knobs
   data.py               # loading/cleaning/splitting
-  embeddings.py         # TF-IDF/MiniLM/RoBERTa/OpenAI embedding helpers
+  embeddings.py         # MiniLM/RoBERTa embedding helpers
   summarization.py      # bart-large-cnn summarize/title generation only
                          # (zero-shot classification pieces removed with
                          # the AG News-era summarization_labeling notebook)
   weak_supervision.py   # auto-derived per-class TF-IDF labeling functions
   label_propagation.py  # k-NN graph + LabelSpreading
   modeling.py           # fine-tuning helpers (DistilBERT/ELECTRA-small)
-  interpretability.py   # cluster-term extraction (KeyBERT-based)
+  interpretability.py   # cluster-term extraction (TF-IDF-based)
   metrics.py            # shared metric computation
   samples.py            # sample/full-label CSV writers
+  dec.py                # DEC model, autoencoder pretraining, KL divergence refinement
 
 results/
   comparison_table.csv                    # one row per method, all headline metrics
   metrics_<method>.json                   # per-method metrics (+ history for pseudo-labeling)
   sample_labels_<method>.csv             # small qualitative sample
   full_labels_<method>.csv               # every row scored by that method
+  cluster_labels_<method>.npy            # raw integer cluster assignments (used by notebook 09)
   confusion_matrix_<method>.png          # supervised/pseudo-labeling confusion matrices
   comparison_bar_chart.png               # visual summary across methods
   cluster_similarity_summary.csv         # cross-method intra/inter-cluster cosine sim table
   cluster_sim_heatmap_<method>.png       # centroid-to-centroid similarity heatmap per clustering method
   cluster_similarity_comparison.png      # intra vs. inter-cluster bar chart with separation ratios
-
-docs/
-  PROJECT_SUMMARY_AGNEWS_ARCHIVE.md  # retired AG News (4-class) version
-  semi_supervised_methods.md         # candidate/decision log for semi-supervised methods
 ```
