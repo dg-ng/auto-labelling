@@ -424,21 +424,56 @@ cluster centroid and three statistics are recorded:
 
 ### 9.2 Cross-method results
 
-*Results for the 6 new methods (minilm_kmeans, roberta_kmeans,
-minilm_agglomerative, roberta_agglomerative, minilm_dec, roberta_dec) will
-be populated here after the full notebook 02 production run and subsequent
-notebook 09 run. See `results/cluster_similarity_summary.csv` for live
-numbers.*
+| Method | Clusters | Coverage | Mean intra | Mean inter | Separation ratio |
+|---|---|---|---|---|---|
+| **minilm_kmeans** | 16 | 100% | **0.402** | 0.302 | **×1.331** |
+| **minilm_agglomerative** | 16 | 100% | **0.402** | 0.310 | **×1.295** |
+| roberta_kmeans | 16 | 100% | 0.989 | 0.975 | ×1.014 |
+| roberta_agglomerative | 16 | 100% | 0.989 | 0.976 | ×1.014 |
+| roberta_dec | 16 | 100% | 0.987 | 0.975 | ×1.013 |
+| minilm_dec | 16 | 100% | 0.339 | 0.479 | ×0.707 |
 
-### 9.3 Notable individual clusters
+**MiniLM KMeans and MiniLM Agglomerative are the best-separated methods**
+(×1.33 and ×1.30 respectively): each cluster's members sit closer to their
+own centroid than to any other centroid. Their separation ratios and headline
+ACCs are nearly identical (0.4482 vs 0.4506), reflecting that both algorithms
+are operating on the same UMAP-reduced MiniLM embedding space and converging
+to similar partitions.
 
-*Will be updated after full notebook 02 + 09 runs.*
+**RoBERTa methods (all three) collapse geometrically.** Intra and inter
+similarities both exceed 0.975, meaning all 3,824 articles occupy an almost
+indistinguishable region on the unit sphere. The clusters technically exist
+but are geometrically invisible — cluster centroids are only ~2.5% further
+from each other than members are from their own centroid. This explains why
+all three RoBERTa ACCs cluster tightly around 0.15–0.24.
 
-### 9.4 Interactive explorer
+**MiniLM DEC has an inverted separation ratio (×0.71)**: inter-centroid
+similarity (0.479) exceeds intra-cluster similarity (0.339). DEC's
+KL-divergence refinement is pushing cluster centers apart without pulling
+member points toward them — a sign of non-convergence (the training loop
+never reaches `tol=1e-3`, terminating at epoch 150 with a label-change delta
+of ~2–3%). The learned 64-dim latent space does not produce tighter clusters
+than the raw UMAP-reduced embedding, and the task accuracy reflects this
+(26.3% vs 45.1% for MiniLM Agglomerative).
 
-*The interactive similarity explorer referenced in prior versions covered
-the retired TF-IDF/HDBSCAN/BERTopic methods. A new explorer for the 6-outcome
-design will be published after the production run.*
+### 9.3 Notable findings
+
+- **MiniLM dominates across all clusterers.** In every matched pair
+  (KMeans, Agglomerative, DEC), MiniLM substantially outperforms RoBERTa
+  on both ACC and separation ratio. The sentence-transformer training
+  objective (`all-MiniLM-L6-v2`) produces embeddings better calibrated for
+  angular separation in this news domain than the generic RoBERTa `[CLS]`
+  pooling.
+- **UMAP-based methods (KMeans, Agglomerative) outperform the learned
+  latent space (DEC).** The 50-dim cosine UMAP reduction preserves local
+  neighbourhood structure well enough that a simple KMeans on top matches
+  or beats DEC's jointly optimised encoder on both clustering quality and
+  semantic cohesion.
+- **Agglomerative ≈ KMeans at this scale.** Ward linkage produces near-
+  identical intra/inter similarity and ACC to KMeans on the same embeddings,
+  suggesting the dataset's cluster structure is already roughly hyperspherical
+  after UMAP reduction — the hierarchical merge objective adds no measurable
+  benefit.
 
 ---
 
