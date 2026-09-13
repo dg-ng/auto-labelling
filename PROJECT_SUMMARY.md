@@ -1,7 +1,7 @@
 # Auto-Labeling for Text Classification — Master Data (16 Classes)
 
 **Project summary for presentation**
-Date: 2026-09-06 (full-scale semi-supervised re-run)
+Date: 2026-09-13 (notebook 11 improved clustering added)
 
 > The AG News (4-class) version of this project has been retired and is
 > archived at [`docs/PROJECT_SUMMARY_AGNEWS_ARCHIVE.md`](docs/PROJECT_SUMMARY_AGNEWS_ARCHIVE.md)
@@ -147,6 +147,27 @@ requiring explicit k=16:
 This gives **6 outcomes** (3 clusterers × 2 embeddings). Cluster ids are
 Hungarian-matched to the 16 class names for accuracy scoring.
 
+### 4.1.1 Improved clustering experiments (`11_improved_clustering.ipynb`)
+
+Three targeted experiments on top of the notebook 02 baseline
+(`minilm_agglomerative`, ACC 45.1%):
+
+- **Experiment A — MPNet embeddings:** replace `all-MiniLM-L6-v2` (384-dim)
+  with `all-mpnet-base-v2` (768-dim) on the same BART summaries. Run KMeans,
+  Agglomerative, and DEC (3 new methods: `mpnet_kmeans`, `mpnet_agglomerative`,
+  `mpnet_dec`).
+- **Experiment B — UMAP hyperparameter tuning:** keep MiniLM embeddings; sweep
+  n_neighbors=[15, 30, 50] × min_dist=[0.0, 0.05, 0.1] (9 combos, scored by
+  KMeans silhouette), pick best, run KMeans and Agglomerative with tuned params
+  (2 new methods: `minilm_kmeans_umap`, `minilm_agglomerative_umap`).
+- **Experiment C — Title embeddings:** embed raw article titles with MiniLM
+  instead of BART summaries — much shorter sequences (~5–8 words vs ~25 words).
+  Run KMeans, Agglomerative, DEC (3 new methods: `title_minilm_kmeans`,
+  `title_minilm_agglomerative`, `title_minilm_dec`).
+
+All 8 new methods produce the same 4-artifact schema as notebook 02 and appear
+automatically in the comparison table.
+
 ### 4.2 Semi-supervised (`04_weak_supervision.ipynb`, `08_label_propagation.ipynb`, `05_pseudo_labeling.ipynb`, `05b_pseudo_labeling_electra.ipynb`)
 
 All three methods here train on **raw text**, not summaries, and all start
@@ -202,6 +223,45 @@ learning its own 64-dim latent space, the KL-divergence refinement converges to
 a fixed-epoch snapshot (delta ~2–3% at termination, above the 1e-3 tolerance)
 that is inferior to the UMAP-based methods. MiniLM DEC reaches 26.3% ACC vs
 MiniLM Agglomerative's 45.1%.
+
+### 5.1.1 Improved clustering results (notebook 11, 3,824-row train split)
+
+Baseline for comparison: `minilm_agglomerative` ACC=0.4506, F1=0.4406.
+
+| Method | ACC (Hungarian) | Macro F1 | NMI | Silhouette | vs baseline |
+|---|---|---|---|---|---|
+| **mpnet_kmeans** | **0.5413** | **0.5379** | 0.4468 | 0.0408 | **+8.5pp ✓** |
+| title_minilm_agglomerative | 0.5207 | 0.5202 | 0.4352 | 0.0319 | +7.0pp ✓ |
+| title_minilm_kmeans | 0.5154 | 0.5132 | 0.4433 | 0.0372 | +6.5pp ✓ |
+| mpnet_agglomerative | 0.4882 | 0.4764 | 0.4363 | 0.0416 | +3.8pp ✓ |
+| minilm_agglomerative_umap | 0.4772 | 0.4666 | 0.4020 | 0.0337 | +2.7pp ✓ |
+| minilm_kmeans_umap | 0.4746 | 0.4695 | 0.4188 | 0.0392 | +2.4pp ✓ |
+| title_minilm_dec | 0.2814 | 0.2879 | 0.2584 | 0.0009 | — |
+| mpnet_dec | 0.2670 | 0.2415 | 0.2595 | −0.0079 | — |
+
+**MPNet summary embeddings (`all-mpnet-base-v2`, 768-dim) are the clear
+winner.** `mpnet_kmeans` reaches **54.1% ACC / 53.8% F1**, +8.5pp over
+the MiniLM baseline. The larger MPNet model — trained with a hard negative
+mining objective — produces better-separated summary embeddings than the
+384-dim MiniLM on this 16-class domain.
+
+**Title embeddings are surprisingly strong.** `title_minilm_agglomerative`
+(52.1% ACC) and `title_minilm_kmeans` (51.5% ACC) beat the summary-based
+MiniLM baseline by 7pp and 6.5pp using only short article titles (~5–8
+words), with no BART summarization needed. Titles appear to be more
+discriminative than BART-compressed full-text for this 16-class task —
+likely because BART summaries can paraphrase away category-specific
+vocabulary while titles retain it (e.g. "Scientists discover…" vs
+"FBI charges…").
+
+**UMAP tuning gives modest but consistent gains** (+2.4–2.7pp). The grid
+search selected n_neighbors=15, min_dist=0.0 as the best UMAP parameters
+by silhouette score — same neighbourhood size as the default but with
+min_dist=0.0 packing points more tightly in the 50-dim projection.
+
+**DEC continues to underperform** on both new embedding types, consistent
+with notebook 02. `title_minilm_dec` (28.1%) and `mpnet_dec` (26.7%) both
+fall far below their KMeans counterparts.
 
 ### 5.2 Semi-supervised and supervised (raw text, full-scale — 12/class seed)
 
@@ -598,6 +658,7 @@ notebooks/
   08_label_propagation.ipynb        # MiniLM k-NN graph + LabelSpreading
   09_cluster_similarity.ipynb       # intra/inter-cluster cosine similarity for all unsupervised methods
   10_cross_method_alignment.ipynb   # shared UMAP projection → 96×96 centroid similarity, 15 pairwise heatmaps
+  11_improved_clustering.ipynb      # 3 experiments: MPNet embeddings, UMAP tuning, title embeddings (8 new methods)
 
 utils/
   config.py             # paths, class names, seed, sample-size knobs
