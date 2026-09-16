@@ -1,7 +1,7 @@
 # Auto-Labeling for Text Classification — Master Data (16 Classes)
 
 **Project summary for presentation**
-Date: 2026-09-13 (notebook 11 improved clustering added)
+Date: 2026-09-16 (notebooks 12–13 added: further clustering experiments + semantic evaluation)
 
 > The AG News (4-class) version of this project has been retired and is
 > archived at [`docs/PROJECT_SUMMARY_AGNEWS_ARCHIVE.md`](docs/PROJECT_SUMMARY_AGNEWS_ARCHIVE.md)
@@ -168,6 +168,42 @@ Three targeted experiments on top of the notebook 02 baseline
 All 8 new methods produce the same 4-artifact schema as notebook 02 and appear
 automatically in the comparison table.
 
+### 4.1.2 Further clustering experiments (`12_further_clustering_experiments.ipynb`)
+
+Two additional experiments on top of the notebook 11 best methods:
+
+- **Experiment D — RoBERTa + tuned UMAP:** applies the same 3×3 UMAP grid
+  (n_neighbors ∈ {15,30,50} × min_dist ∈ {0.0,0.05,0.1}, 9 combos scored by
+  KMeans silhouette) that nb11 Exp B used on MiniLM, now applied to RoBERTa
+  (768-dim). Best UMAP params: n_neighbors=15, min_dist=0.0. Produces
+  `roberta_kmeans_umap` and `roberta_agglomerative_umap`.
+- **Experiment E — Combined embeddings:** L2-normalise MiniLM summary
+  embeddings (384-dim) and MiniLM title embeddings (384-dim) then concatenate
+  into a single 768-dim vector per article, apply UMAP (default params),
+  cluster with KMeans and Agglomerative. Produces `combined_kmeans` and
+  `combined_agglomerative`. Combined embedding cached at
+  `embeddings_cache/combined_title_summary.npy`.
+
+### 4.1.3 Cluster description & semantic evaluation (`13_cluster_description_evaluation.ipynb`)
+
+Three-stage notebook evaluating all 18 clustering methods semantically:
+
+- **Section 1 — LexRank descriptions:** for every method × cluster, concatenate
+  all member articles' summaries, run LexRank (via `sumy`) to extract 3
+  representative sentences (min 10 words each). Saves
+  `results/cluster_descriptions_{method}.json` for all 18 methods. Generator
+  lives in `utils/cluster_description.py`.
+- **Section 2 — Semantic category mapping:** encode each cluster description
+  and 16 canonical category descriptions with `all-mpnet-base-v2`
+  (L2-normalised, so dot product = cosine similarity). For each cluster, map
+  it to its nearest canonical category. Saves
+  `results/cluster_category_mapping_{method}.json`.
+- **Section 3 — Semantic evaluation:** compute per-method *mean semantic
+  similarity* (mean cosine similarity of each cluster to its best-matching
+  canonical category) and *mapping accuracy* (fraction of clusters where the
+  semantically mapped category matches the majority true label). Writes
+  `results/semantic_evaluation.csv`.
+
 ### 4.2 Semi-supervised (`04_weak_supervision.ipynb`, `08_label_propagation.ipynb`, `05_pseudo_labeling.ipynb`, `05b_pseudo_labeling_electra.ipynb`)
 
 All three methods here train on **raw text**, not summaries, and all start
@@ -262,6 +298,76 @@ min_dist=0.0 packing points more tightly in the 50-dim projection.
 **DEC continues to underperform** on both new embedding types, consistent
 with notebook 02. `title_minilm_dec` (28.1%) and `mpnet_dec` (26.7%) both
 fall far below their KMeans counterparts.
+
+### 5.1.2 Further clustering results (notebook 12, 3,824-row train split)
+
+Baseline for comparison: `mpnet_kmeans` ACC=0.5413 (nb11 best).
+
+| Method | ACC (Hungarian) | Macro F1 | NMI | vs nb11 best |
+|---|---|---|---|---|
+| combined_agglomerative | 0.5094 | 0.4924 | 0.4665 | −3.2pp |
+| combined_kmeans | 0.4979 | 0.4929 | 0.4699 | −4.3pp |
+| roberta_agglomerative_umap | 0.2547 | 0.2493 | 0.2342 | — |
+| roberta_kmeans_umap | 0.2482 | 0.2392 | 0.2522 | — |
+
+**Combined title+summary embeddings** reach 50.9%–49.8% ACC — competitive
+with the nb02 MiniLM baselines but do not surpass the nb11 best (`mpnet_kmeans`
+at 54.1%). Concatenating two 384-dim sentence-transformer spaces adds breadth
+but the resulting 768-dim space is no richer than a dedicated 768-dim MPNet
+model trained end-to-end on sentence similarity.
+
+**UMAP-tuned RoBERTa** (Exp D) barely improves over raw RoBERTa from nb02
+(24.8%/25.5% vs 24.4%/24.3%). The UMAP grid selected n_neighbors=15,
+min_dist=0.0 — the same n_neighbors as the MiniLM default that gave +2.4pp
+there, suggesting the geometric collapse of RoBERTa embeddings (Section 9.2)
+limits any neighbourhood-structure improvement.
+
+### 5.1.3 Semantic evaluation results (notebook 13, all 18 methods)
+
+`results/semantic_evaluation.csv` — sorted by mean semantic similarity.
+
+| Method | ACC | Macro F1 | NMI | Semantic sim | Map acc |
+|---|---|---|---|---|---|
+| **mpnet_dec** | 0.2670 | 0.2415 | 0.2595 | **0.2853** | 0.3125 |
+| mpnet_agglomerative | 0.4882 | 0.4764 | 0.4363 | 0.2837 | 0.6250 |
+| title_minilm_dec | 0.2814 | 0.2879 | 0.2584 | 0.2770 | 0.3125 |
+| minilm_kmeans | 0.4482 | 0.4443 | 0.4178 | 0.2725 | **0.7500** |
+| minilm_agglomerative | 0.4506 | 0.4406 | 0.4041 | 0.2716 | 0.6250 |
+| minilm_dec | 0.2620 | 0.2501 | 0.2347 | 0.2678 | 0.4375 |
+| **mpnet_kmeans** | **0.5413** | **0.5379** | 0.4468 | 0.2651 | **0.7500** |
+| roberta_kmeans | 0.2440 | 0.2351 | 0.2469 | 0.2643 | 0.3750 |
+| title_minilm_agglomerative | 0.5207 | 0.5202 | 0.4352 | 0.2630 | 0.3750 |
+| combined_kmeans | 0.4979 | 0.4929 | 0.4699 | 0.2626 | 0.6250 |
+| combined_agglomerative | 0.5094 | 0.4924 | 0.4665 | 0.2599 | **0.7500** |
+| roberta_agglomerative_umap | 0.2547 | 0.2493 | 0.2342 | 0.2569 | 0.3750 |
+| minilm_kmeans_umap | 0.4746 | 0.4695 | 0.4188 | 0.2538 | 0.6250 |
+| minilm_agglomerative_umap | 0.4772 | 0.4666 | 0.4020 | 0.2486 | 0.5625 |
+| roberta_kmeans_umap | 0.2482 | 0.2392 | 0.2522 | 0.2451 | 0.3125 |
+| title_minilm_kmeans | 0.5154 | 0.5132 | 0.4433 | 0.2364 | **0.7500** |
+| roberta_dec | 0.1475 | 0.1290 | 0.1152 | 0.2319 | 0.1875 |
+| roberta_agglomerative | 0.2432 | 0.2335 | 0.2494 | 0.2161 | 0.3125 |
+
+**Key findings:**
+
+- **Semantic similarity and ACC do not rank methods the same way.** `mpnet_dec`
+  scores highest on semantic similarity (0.2853) despite only 26.7% ACC — its
+  LexRank descriptions are topically coherent even though the clusters are
+  poorly aligned with the 16 true labels. Conversely, `mpnet_kmeans` (best ACC
+  at 54.1%) ranks 7th on semantic similarity (0.2651).
+- **Mapping accuracy (75%)** is achieved by four methods: `mpnet_kmeans`,
+  `minilm_kmeans`, `combined_agglomerative`, and `title_minilm_kmeans`. These
+  four are the only methods where 12 of 16 cluster descriptions point to the
+  correct canonical category label when embedded and cosine-matched — a
+  strong indicator that their clusters represent genuine topic structure.
+- **MPNet Agglomerative** pairs high semantic similarity (0.2837, 2nd) with
+  decent ACC (48.8%) and 62.5% mapping accuracy — a more balanced profile than
+  `mpnet_dec`.
+- **RoBERTa methods** rank near the bottom on mapping accuracy (19–38%) and
+  near the bottom on ACC, confirming that the geometric collapse noted in
+  Section 9.2 impairs both quantitative and semantic cluster quality.
+- **DEC methods** cluster high on semantic similarity but low on ACC and
+  mapping accuracy — their clusters are semantically coherent but don't
+  correspond to the true label boundaries.
 
 ### 5.2 Semi-supervised and supervised (raw text, full-scale — 12/class seed)
 
@@ -658,11 +764,10 @@ hold the 15-row summary tables.
   full-scale re-run (2026-09-06) addresses this by running the
   semi-supervised and baseline track on all ~4,781 rows with a 12/class
   seed. All full-scale results are now complete — see Section 5.2.
-- **Semantic-closeness scoring** (comparing a generated free-text label to
-  the true class name by embedding similarity, rather than only exact
-  match) remains a deferred future item, as noted in the archived AG News
-  document — every method here still outputs one of the 16 fixed class
-  names, so exact-match accuracy stays well-defined for now.
+- **Semantic-closeness scoring** (comparing cluster content to canonical
+  category descriptions by embedding similarity) is now implemented in
+  notebook 13 — see Section 5.1.3. Both mean semantic similarity and
+  mapping accuracy are reported in `results/semantic_evaluation.csv`.
 
 ## 12. Repo Map
 
@@ -696,6 +801,8 @@ notebooks/
   09_cluster_similarity.ipynb       # intra/inter-cluster cosine similarity for all unsupervised methods
   10_cross_method_alignment.ipynb   # shared UMAP projection → 96×96 centroid similarity, 15 pairwise heatmaps
   11_improved_clustering.ipynb      # 3 experiments: MPNet embeddings, UMAP tuning, title embeddings (8 new methods)
+  12_further_clustering_experiments.ipynb  # Exp D: RoBERTa+tuned UMAP; Exp E: combined title+summary embeddings (4 new methods)
+  13_cluster_description_evaluation.ipynb # LexRank descriptions + semantic category mapping + evaluation CSV
 
 utils/
   config.py             # paths, class names, seed, sample-size knobs
@@ -711,6 +818,7 @@ utils/
   metrics.py            # shared metric computation
   samples.py            # sample/full-label CSV writers
   dec.py                # DEC model, autoencoder pretraining, KL divergence refinement
+  cluster_description.py  # LexRank cluster description generator (sumy)
 
 results/
   comparison_table.csv                    # one row per method, all headline metrics
@@ -726,4 +834,7 @@ results/
   centroid_alignment_summary.csv         # 15-row table: method pair × mean best-match × strong alignments
   alignment_heatmap_all.png              # 5×3 grid of 16×16 pairwise heatmaps (notebook 10)
   centroid_scatter_2d.png               # 2D UMAP of all 96 centroids, coloured by method (notebook 10)
+  cluster_descriptions_<method>.json    # LexRank descriptions per cluster, all 18 methods (notebook 13 §1)
+  cluster_category_mapping_<method>.json # cosine-mapped canonical category per cluster, all 18 methods (nb13 §2)
+  semantic_evaluation.csv               # per-method: ACC, F1, NMI, mean_semantic_score, mapping_accuracy (nb13 §3)
 ```
