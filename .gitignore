@@ -4,13 +4,9 @@ data/processed/
 results/*
 !results/comparison_table.csv
 !results/semantic_evaluation.csv
-!results/image_comparison.csv
-!results/image_full_labels_label_propagation.csv
-!results/image_metrics_label_propagation.json
-!results/image_full_labels_pseudo_labeling_A.csv
-!results/image_metrics_pseudo_labeling_A.json
-!results/image_full_labels_pseudo_labeling_B.csv
-!results/image_metrics_pseudo_labeling_B.json
+!results/image_*.csv
+!results/image_*.json
+!results/image_*.npy
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
