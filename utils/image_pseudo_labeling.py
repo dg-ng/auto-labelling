@@ -45,6 +45,10 @@ def pseudo_label_loop(
         pred_labels: (N,) int array — final predicted label for every row
         history: list of {iteration, new_pseudo_labels, cumulative_coverage}
     """
+    present = set(np.unique(seed_labels))
+    expected = set(range(n_classes))
+    assert present == expected, f"Seed missing classes: {expected - present}"
+
     labeled_mask = seed_mask.copy()
     labeled_labels = np.full(len(embeddings), -1, dtype=int)
     labeled_labels[seed_mask] = seed_labels
