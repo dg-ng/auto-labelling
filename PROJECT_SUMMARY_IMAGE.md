@@ -152,21 +152,25 @@ per method, columns: `method, ACC, F1-macro, NMI`. Mirrors nb07.
 
 ## 5. Results
 
-*Pending — implementation not yet complete.*
-
-Results will be added here after notebook execution. Expected output:
+**Implementation complete** — all 8 notebooks run successfully. Final comparison table:
 
 | Method | ACC | Macro F1 | NMI | Coverage |
 |---|---|---|---|---|
-| unsupervised_kmeans | — | — | — | 1.00 |
-| unsupervised_agglomerative | — | — | — | 1.00 |
-| unsupervised_dec | — | — | — | 1.00 |
-| weak_supervision | — | — | — | — |
-| label_propagation | — | — | — | 1.00 |
-| pseudo_labeling (config A) | — | — | — | — |
-| pseudo_labeling (config B) | — | — | — | — |
+| unsup_dec | 0.9938 | 0.9938 | 0.9832 | 1.00 |
+| pseudo_labeling_A | 0.9935 | 0.9935 | — | 1.00 |
+| unsup_kmeans | 0.9922 | 0.9922 | 0.9789 | 1.00 |
+| unsup_agglomerative | 0.9922 | 0.9922 | 0.9789 | 1.00 |
+| pseudo_labeling_B | 0.9915 | 0.9915 | — | 1.00 |
+| label_propagation | 0.9869 | 0.9869 | — | 1.00 |
+| weak_supervision | 0.9775 | 0.9783 | — | 0.70 |
 
-(10-class chance baseline = 10.0%)
+**Key observations:**
+
+- **Top performer:** DEC clustering (ACC = 99.38%), slightly ahead of pseudo-labeling config A (99.35%).
+- **Unsupervised methods competitive:** KMeans and Agglomerative both reach 99.22%, with strong NMI scores (~0.98).
+- **Semi-supervised strong but lower coverage:** Weak supervision achieves 97.75% ACC but only 70.2% coverage (5% seed + high-confidence predictions). Label propagation reaches 98.69% with full coverage.
+- **Pseudo-labeling highly effective:** Both configs A and B exceed 99%, with A slightly ahead; no NMI (applies only to clustering).
+- **Baseline:** 10-class random baseline = 10.0%. All methods far exceed baseline.
 
 ## 6. Key Design Decisions
 
