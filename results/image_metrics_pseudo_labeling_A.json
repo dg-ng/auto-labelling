@@ -1,0 +1,63 @@
+{
+  "config": "A",
+  "hidden_sizes": [
+    256,
+    128
+  ],
+  "threshold": 0.9,
+  "label_acc": 0.9934545454545455,
+  "label_f1": 0.993455138429218,
+  "coverage": 1.0,
+  "history": [
+    {
+      "iteration": 0,
+      "new_pseudo_labels": 4291,
+      "cumulative_coverage": 0.8301818181818181
+    },
+    {
+      "iteration": 1,
+      "new_pseudo_labels": 806,
+      "cumulative_coverage": 0.9767272727272728
+    },
+    {
+      "iteration": 2,
+      "new_pseudo_labels": 77,
+      "cumulative_coverage": 0.9907272727272727
+    },
+    {
+      "iteration": 3,
+      "new_pseudo_labels": 9,
+      "cumulative_coverage": 0.9923636363636363
+    },
+    {
+      "iteration": 4,
+      "new_pseudo_labels": 8,
+      "cumulative_coverage": 0.9938181818181818
+    },
+    {
+      "iteration": 5,
+      "new_pseudo_labels": 6,
+      "cumulative_coverage": 0.9949090909090909
+    },
+    {
+      "iteration": 6,
+      "new_pseudo_labels": 1,
+      "cumulative_coverage": 0.9950909090909091
+    },
+    {
+      "iteration": 7,
+      "new_pseudo_labels": 1,
+      "cumulative_coverage": 0.9952727272727273
+    },
+    {
+      "iteration": 8,
+      "new_pseudo_labels": 5,
+      "cumulative_coverage": 0.9961818181818182
+    },
+    {
+      "iteration": 9,
+      "new_pseudo_labels": 3,
+      "cumulative_coverage": 0.9967272727272727
+    }
+  ]
+}
