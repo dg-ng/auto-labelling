@@ -24,6 +24,8 @@ dependencies = [
     "jupyter",
     "nbconvert",
     "accelerate>=1.1.0",
+    "gradio",
+    "pillow",
 ]
 
 [dependency-groups]

@@ -15,3 +15,6 @@ __pycache__/
 _tmp_trainer/
 
 .superpowers/
+
+# Saved model artifacts (regenerate with scripts/export_models.py)
+models/
