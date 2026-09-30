@@ -56,9 +56,12 @@ def _load_text_semisup() -> dict:
     if _text_semisup_cache is not None:
         return _text_semisup_cache
     model_dir = MODELS_DIR / "text_distilbert"
-    if not model_dir.exists():
+    required = [model_dir / "config.json", model_dir / "tokenizer_config.json"]
+    missing = [p for p in required if not p.exists()]
+    if missing:
         raise FileNotFoundError(
-            f"Missing {model_dir}. Run: uv run python scripts/export_models.py"
+            f"Incomplete text_distilbert artifact (missing: {[p.name for p in missing]}). "
+            "Run: uv run python scripts/export_models.py"
         )
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
     tokenizer = AutoTokenizer.from_pretrained(str(model_dir))
@@ -87,4 +90,4 @@ def predict_text_semisupervised(text: str) -> str:
     with torch.no_grad():
         logits = m["model"](**inputs).logits
     class_id = int(logits.argmax(dim=-1).item())
-    return CLASS_NAMES[class_id]
+    return CLASS_NAMES[class_id] if class_id < len(CLASS_NAMES) else f"cluster-{class_id}"

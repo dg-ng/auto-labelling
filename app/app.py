@@ -34,7 +34,6 @@ def label_image(image):
         from PIL import Image
         if not isinstance(image, Image.Image):
             image = Image.fromarray(image)
-        image = image.convert("RGB")
         unsup = predict_image_unsupervised(image)
         semisup = predict_image_semisupervised(image)
     except (UnidentifiedImageError, OSError) as e:

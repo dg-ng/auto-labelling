@@ -60,7 +60,7 @@ def _load_image_unsup() -> dict:
             "Run: uv run python scripts/export_models.py"
         )
     import torch
-    from utils.dec import _build_encoder
+    from utils.dec import _build_encoder  # intentional: must match dec.py's architecture
     with open(MODELS_DIR / "image_dec_arch.json") as f:
         arch = json.load(f)
     encoder = _build_encoder(arch["input_dim"], arch["latent_dim"])
@@ -112,5 +112,5 @@ def predict_image_semisupervised(image) -> str:
     """CLIP embed → MLP pipeline → argmax → return label name."""
     m = _load_image_semisup()
     clip_emb = _clip_embed(image)      # (1, 512)
-    pred = m["mlp"].predict(clip_emb)[0]
-    return m["label_names"][int(pred)]
+    pred = int(m["mlp"].predict(clip_emb)[0])
+    return m["label_names"][pred] if pred < len(m["label_names"]) else f"cluster-{pred}"
