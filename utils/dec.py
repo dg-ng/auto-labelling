@@ -5,7 +5,7 @@ Adapted for pre-trained dense embeddings (MiniLM / RoBERTa) as input:
 skips the raw-input-to-feature-extractor step and directly learns a
 compressed latent space (MLP encoder, 2-layer) plus cluster centers.
 
-Entry point: train_dec(embeddings, n_clusters, ...) -> np.ndarray of int labels.
+Entry point: train_dec(embeddings, n_clusters, ...) -> (labels, encoder, centers).
 """
 
 from __future__ import annotations
@@ -152,6 +152,8 @@ def train_dec(
 
     Returns:
         labels: (N,) int32 array of cluster assignments in [0, n_clusters).
+        encoder: trained nn.Sequential encoder (input_dim → latent_dim).
+        centers: (n_clusters, latent_dim) float32 numpy array of cluster centers.
     """
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -224,4 +226,4 @@ def train_dec(
     final_labels = q_final.argmax(dim=1).numpy().astype(np.int32)
 
     print(f"[DEC] Done. {len(np.unique(final_labels))} non-empty clusters.")
-    return final_labels
+    return final_labels, encoder, centers.detach().cpu().numpy()
